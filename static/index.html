@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecture Pages Generator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Lecture Pages Generator</h1>
+            <p class="subtitle">Transform your text into illustrated lecture pages</p>
+        </header>
+
+        <div class="input-section">
+            <div class="input-container">
+                <label for="text-input">Paste your lecture text here:</label>
+                <textarea 
+                    id="text-input" 
+                    placeholder="Paste your textbook content, lecture notes, or any educational text here. The system will automatically organize it into pages with main points and generate illustrative images."
+                    rows="15"
+                ></textarea>
+                <div class="button-group">
+                    <button id="process-btn" class="btn btn-primary">Generate Pages</button>
+                    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                    <label for="load-file-input" class="btn btn-load">📂 Load Saved Slides</label>
+                    <input type="file" id="load-file-input" accept=".json" style="display: none;">
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Processing your text and generating pages...</p>
+        </div>
+
+        <div id="pages-container" class="pages-container hidden">
+            <div class="pages-header">
+                <h2>Generated Pages</h2>
+                <div class="controls">
+                    <button id="prev-btn" class="btn btn-nav">← Previous</button>
+                    <span id="page-counter">Page 1 of 1</span>
+                    <button id="next-btn" class="btn btn-nav">Next →</button>
+                    <button id="save-btn" class="btn btn-save">💾 Save Slides</button>
+                    <button id="export-html-main-btn" class="btn btn-save">📄 Export HTML</button>
+                    <button id="present-btn" class="btn btn-present">🎬 Present Slides</button>
+                </div>
+            </div>
+            
+            <div id="pages-content"></div>
+        </div>
+
+        <!-- Presentation Mode Overlay -->
+        <div id="presentation-overlay" class="presentation-overlay hidden">
+            <!-- Permanent TOC Sidebar on Left -->
+            <div id="toc-sidebar" class="toc-sidebar">
+                <div class="toc-header">
+                    <h3>Contents</h3>
+                </div>
+                <div id="toc-list" class="toc-list"></div>
+            </div>
+            
+            <!-- Main presentation area -->
+            <div class="presentation-main">
+                <div class="presentation-controls">
+                    <button id="present-prev-btn" class="btn btn-present-nav">← Prev</button>
+                    <span id="present-counter">Slide 1 of 1</span>
+                    <button id="present-next-btn" class="btn btn-present-nav">Next →</button>
+                    <button id="print-btn" class="btn btn-save">🖨️ Print/PDF</button>
+                    <button id="present-save-btn" class="btn btn-save">💾 Save</button>
+                    <button id="export-html-btn" class="btn btn-save">📄 Export HTML</button>
+                    <button id="fullscreen-btn" class="btn btn-fullscreen">⛶ Full</button>
+                    <button id="exit-present-btn" class="btn btn-exit">✕ Exit</button>
+                </div>
+                
+                <div id="presentation-content" class="presentation-content"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error hidden"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
