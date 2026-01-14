@@ -1,5 +1,7 @@
 # Lecture Pages Generator
 
+![screenshot](./screenshot.png)
+
 A web application that transforms long-form text into illustrated lecture pages with automatically extracted main points and AI-generated images.
 
 ## Features
