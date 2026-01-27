@@ -1033,9 +1033,10 @@ function toggleFullscreen() {
 }
 
 function handlePresentationKeys(e) {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
         navigateSlide(-1);
-    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
         e.preventDefault();
         navigateSlide(1);
     } else if (e.key === 'Escape') {
