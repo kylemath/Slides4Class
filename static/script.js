@@ -2956,12 +2956,65 @@ async function generateImage(pageIndex, prompt) {
 // Store page prompts globally for easy access
 window.pagePrompts = [];
 
+// Deduplicate images to reduce exported HTML file size
+function deduplicateImages(slidesArray) {
+    const imageLookup = {};
+    const imageToHash = new Map();
+    
+    // Simple hash function for strings
+    function simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < Math.min(str.length, 1000); i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        // Add length to make hash more unique
+        return Math.abs(hash).toString(36) + '_' + str.length.toString(36);
+    }
+    
+    // First pass: collect all unique images
+    slidesArray.forEach(slide => {
+        ['primaryImageData', 'secondaryImageData', 'imageData'].forEach(field => {
+            const imgData = slide[field];
+            if (imgData && typeof imgData === 'string' && imgData.startsWith('data:image/')) {
+                if (!imageToHash.has(imgData)) {
+                    const hash = simpleHash(imgData);
+                    imageToHash.set(imgData, hash);
+                    imageLookup[hash] = imgData;
+                }
+            }
+        });
+    });
+    
+    // Second pass: replace image data with references
+    const deduplicatedPages = slidesArray.map(slide => {
+        const newSlide = {...slide};
+        ['primaryImageData', 'secondaryImageData', 'imageData'].forEach(field => {
+            const imgData = newSlide[field];
+            if (imgData && imageToHash.has(imgData)) {
+                newSlide[field] = 'IMG_REF:' + imageToHash.get(imgData);
+            }
+        });
+        return newSlide;
+    });
+    
+    const originalCount = slidesArray.length * 3; // 3 image fields per slide
+    const uniqueCount = Object.keys(imageLookup).length;
+    console.log(`Image deduplication: ${uniqueCount} unique images (was ${originalCount} total references)`);
+    
+    return { deduplicatedPages, imageLookup };
+}
+
 // Export slides as standalone HTML file
 async function exportAsHTML() {
     if (pages.length === 0) {
         alert('No slides to export!');
         return;
     }
+    
+    // Deduplicate images to reduce file size
+    const { deduplicatedPages, imageLookup } = deduplicateImages(pages);
     
     // Fetch current CSS and JS
     const cssResponse = await fetch('style.css');
@@ -3081,8 +3134,37 @@ ${cssContent}
     </div>
 
     <script>
-// Embedded slide data (all slides with images baked in)
-const EMBEDDED_SLIDES_DATA = ${JSON.stringify(pages, null, 2)};
+// Image lookup for deduplication (reduces file size significantly)
+const IMAGE_LOOKUP = ${JSON.stringify(imageLookup)};
+
+function getImageFromLookup(ref) {
+    if (!ref || typeof ref !== 'string') return ref;
+    if (ref.startsWith('IMG_REF:')) {
+        const hash = ref.substring(8);
+        return IMAGE_LOOKUP[hash] || ref;
+    }
+    return ref;
+}
+
+// Resolve image references in slide data
+function resolveImageRefs(slides) {
+    return slides.map(slide => {
+        const resolved = {...slide};
+        if (resolved.primaryImageData) {
+            resolved.primaryImageData = getImageFromLookup(resolved.primaryImageData);
+        }
+        if (resolved.secondaryImageData) {
+            resolved.secondaryImageData = getImageFromLookup(resolved.secondaryImageData);
+        }
+        if (resolved.imageData) {
+            resolved.imageData = getImageFromLookup(resolved.imageData);
+        }
+        return resolved;
+    });
+}
+
+// Embedded slide data (with image references for deduplication)
+const EMBEDDED_SLIDES_DATA = ${JSON.stringify(deduplicatedPages, null, 2)};
 
 // Initialize variables
 let currentPageIndex = 0;
@@ -3095,7 +3177,7 @@ let imageStates = {};
 
 // Load embedded data on page load
 window.addEventListener('DOMContentLoaded', function() {
-    pages = EMBEDDED_SLIDES_DATA;
+    pages = resolveImageRefs(EMBEDDED_SLIDES_DATA);
     displayPages();
     document.getElementById('pages-container').classList.remove('hidden');
 });
