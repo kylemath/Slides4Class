@@ -1,23 +1,349 @@
 # Image Style Configuration
 # Edit this file to change the style of generated images
 
-# Choose your style preset: 'whiteboard', 'minimal', 'no-labels'
-STYLE_PRESET = 'whiteboard'
+import json
+import os
+
+# Choose your style preset: 'neuroscience', 'whiteboard', 'medical', 'minimal', 'no-labels', 'wakanda', 'custom'
+STYLE_PRESET = 'neuroscience'
+
+# Path for custom user styles
+CUSTOM_STYLES_PATH = os.path.join(os.path.dirname(__file__), 'custom_styles.json')
 
 STYLE_PRESETS = {
+    'neuroscience': """Whiteboard-style neuroscience educational diagram with anatomical accuracy.
+
+FORMAT: Wide horizontal 16:9 aspect ratio. Pure white background like a clean whiteboard - NO frame, NO border, NO room setting.
+
+WHITEBOARD STYLE:
+- Clean colored line art like hand-drawn on whiteboard by a professor
+- Simple but accurate shapes, arrows, icons
+- Multiple colors (blue, green, red, orange, purple) to distinguish different elements
+- NO photorealism, NO 3D rendering, NO shadows, NO gradients
+
+ANATOMICAL ACCURACY (CRITICAL):
+- Brain structures must be anatomically correct and proportional
+- Use standard neuroanatomy conventions (lateral view, sagittal section, coronal section as appropriate)
+- Proper spatial relationships between structures
+- Accurate gyri/sulci patterns when showing cortex
+- Correct positioning of subcortical structures
+
+TEXT & LABELS:
+- Clear, legible handwriting-style or clean sans-serif labels
+- Labels OUTSIDE the diagram with arrows/lines pointing to structures
+- Maximum 5-7 labels per image
+- Each label: 1-3 words, TRIPLE-CHECK SPELLING, use correct scientific terms
+- Place labels consistently (all on same side when possible)
+
+COLOR CODING:
+- Motor areas/pathways: red or orange
+- Sensory areas/pathways: blue or green  
+- Limbic structures: purple
+- Use color consistently throughout
+
+DO NOT: No cartoon distortions, no artistic liberties with anatomy, no decorative elements, no cluttered labels.""",
+
+    'medical': """Medical textbook illustration style.
+
+FORMAT: 16:9 wide format. Clean white background.
+
+ACCURACY: Anatomically precise, medical illustration quality. Proper proportions and spatial relationships. Suitable for medical education.
+
+TEXT: Clear labels with leader lines. Sans-serif font. Scientific terminology. Maximum 6 labels. Spell each word correctly.
+
+STYLE: Professional medical illustration. Subtle color gradients to show depth. Clean outlines. Standard anatomical coloring conventions.
+
+DO NOT: No artistic interpretation, no cartoon elements, no decorative borders.""",
+
     'whiteboard': """Simple whiteboard-style educational diagram. 
-FORMAT: Wide horizontal 16:9 aspect ratio. Pure white background filling entire canvas - NO frame, NO border, NO room, NO wooden edges.
+
+FORMAT: Wide horizontal 16:9 aspect ratio. Pure white background filling entire canvas.
+
 STYLE: Clean colored line art like hand-drawn on whiteboard. Simple shapes, arrows, icons. Multiple colors (blue, green, red, orange, purple) to distinguish different elements.
-LABELS: Only label the 2-3 MOST IMPORTANT concepts with 1-3 words each. Triple-check spelling. Use arrows to connect related items.
-DO NOT: No photorealism, no 3D effects, no shadows, no decorative elements, no artistic flourishes. Keep it simple and educational.""",
+
+LABELS: Only label the 2-3 MOST IMPORTANT concepts with 1-3 words each. Triple-check spelling. Use arrows to connect related items. Place labels clearly outside diagram elements.
+
+DO NOT: No photorealism, no 3D effects, no shadows, no decorative elements.""",
     
-    'minimal': """Minimal educational diagram. Wide 16:9 format. Pure white background - NO frame. Very few labels (max 2 words each, only for key items). Simple colored shapes and arrows. Clean flat style.""",
+    'minimal': """Minimal educational diagram. 
+
+FORMAT: Wide 16:9 format. Pure white background.
+
+STYLE: Very simple, clean lines. Maximum 2-3 colors. Geometric shapes.
+
+LABELS: Maximum 2 words each, only for key items. Clear readable font.
+
+DO NOT: No complexity, no decorative elements.""",
     
-    'no-labels': """Educational diagram with NO TEXT at all. Wide 16:9 format. Pure white background. Explain concepts purely through colored shapes, arrows, and visual relationships. Simple line art style.""",
+    'no-labels': """Educational diagram with NO TEXT at all. 
+
+FORMAT: Wide 16:9 format. Pure white background. 
+
+STYLE: Explain concepts purely through colored shapes, arrows, and visual relationships. Simple clean line art style. Use color coding to distinguish elements.
+
+DO NOT: Absolutely no text, no labels, no letters.""",
+
+    'reboot': """Photorealistic 3D educational visualization with scientific accuracy and natural backgrounds.
+
+FORMAT: Wide horizontal 16:9 aspect ratio. When helpful for understanding 3D structures, show 2-3 coordinated viewpoints (front, side, cross-section) to reveal spatial relationships.
+
+TITLE: Include a clear, prominent title at the top of the image matching the educational topic. Use large, bold sans-serif text (dark text on light semi-transparent banner, OR white text with dark outline/shadow for darker backgrounds). Title should be immediately readable.
+
+BACKGROUND: Soft blurry bokeh backgrounds simulating macro photography with natural gradient colors:
+- Forest greens and moss tones
+- Sky blues, soft pinks, and cloud whites
+- Bark browns, tans, and warm greys
+- Rock greys and slate blues
+- Water teals and ocean greens
+Background should be smoothly out-of-focus to make the subject pop with clarity.
+
+3D RENDERING STYLE:
+- High-resolution photorealistic 3D renders with soft, natural lighting
+- Physically accurate materials and textures for organic tissues
+- Both macroscopic views (organs, full systems) and microscopic views (cells, structures)
+- Depth of field with the subject in sharp focus
+- Modern scientific illustration aesthetic - NOT flat, NOT cartoon, NOT hand-drawn
+
+SCIENTIFIC & ANATOMICAL ACCURACY (CRITICAL):
+- Brain structures must be anatomically correct with proper gyri/sulci patterns
+- Animal brains must look like ACTUAL animal brains (not shrunken human brains) - species-specific morphology
+- Subcortical structures properly positioned relative to cortex
+- Historical accuracy for research/case studies (e.g., Phineas Gage's tamping iron trajectory through left frontal lobe)
+- Proper scale and proportions - use zoom/inset effects when highlighting small structures
+- Correct spatial relationships and orientations (use standard neuroanatomy conventions)
+
+LABELS (LARGE, CLEAR, CONSISTENT):
+- Maximum 5-7 labels identifying key structures from the educational content
+- LARGE, highly readable text - minimum 24pt equivalent, bold sans-serif font (Arial, Helvetica style)
+- HIGH CONTRAST for readability: Choose ONE consistent style per image:
+  * Option A: White text with black outline/stroke (2-3px) - works on any background
+  * Option B: Dark text on semi-transparent white/light rounded rectangles
+  * Option C: White text on semi-transparent dark rounded rectangles
+- Thin but visible leader lines (2px) connecting labels to structures
+- Place labels outside the main subject with adequate spacing
+- ALL labels in the same image must use the SAME style for consistency
+- Spell all scientific terms correctly
+
+COLOR CODING (CONSISTENT):
+- Motor areas/pathways: warm tones (red, orange)
+- Sensory areas/pathways: cool tones (blue, green)
+- Limbic structures: purple
+- Use color consistently to aid learning
+
+DO NOT: No flat 2D diagrams, no whiteboard style, no hand-drawn look, no cartoon style, no video game elements, no artistic liberties with anatomy, no small/illegible labels, no inconsistent label styling, no inaccurate species morphology.""",
     
     'custom': """Put your own custom style prompt here."""
 }
 
-def get_style_prompt():
-    """Get the current style prompt."""
-    return STYLE_PRESETS.get(STYLE_PRESET, STYLE_PRESETS['whiteboard'])
+# Additional prompt enhancers for specific content types
+CONTENT_ENHANCERS = {
+    'brain': "Show accurate brain anatomy with proper gyri/sulci patterns. Use standard neuroanatomy orientation.",
+    'neuron': "Show accurate neuron morphology with dendrites, soma, axon, and synaptic terminals clearly distinguished.",
+    'pathway': "Use arrows to clearly show direction of signal flow. Color-code afferent (blue) vs efferent (red) pathways.",
+    'comparison': "Use side-by-side or split-panel layout. Clearly label differences.",
+    'process': "Use numbered steps or sequential arrows to show process flow.",
+}
+
+# Runtime state for current style (can be changed via API)
+_current_style_preset = STYLE_PRESET
+_current_style_prompt = None  # If set, overrides preset
+
+# Dual-style generation settings
+DUAL_STYLE_ENABLED = True
+DUAL_STYLE_PRIMARY = 'neuroscience'  # Used for print/PDF
+DUAL_STYLE_SECONDARY = 'reboot'       # Alternative style
+
+def get_dual_style_config():
+    """Get the dual-style generation configuration."""
+    return {
+        'enabled': DUAL_STYLE_ENABLED,
+        'primary': DUAL_STYLE_PRIMARY,
+        'secondary': DUAL_STYLE_SECONDARY,
+        'primary_prompt': STYLE_PRESETS.get(DUAL_STYLE_PRIMARY, STYLE_PRESETS['neuroscience']),
+        'secondary_prompt': STYLE_PRESETS.get(DUAL_STYLE_SECONDARY, STYLE_PRESETS['reboot'])
+    }
+
+def get_dual_style_prompts(content_prompt):
+    """
+    Get both style prompts for dual-style generation.
+    Returns tuple: (primary_full_prompt, secondary_full_prompt)
+    """
+    config = get_dual_style_config()
+    
+    primary_style = config['primary_prompt']
+    secondary_style = config['secondary_prompt']
+    
+    # Build enhanced prompts
+    primary_full = f"{primary_style}\n\nCONTENT TO ILLUSTRATE:\n{content_prompt}"
+    secondary_full = f"{secondary_style}\n\nCONTENT TO ILLUSTRATE:\n{content_prompt}"
+    
+    # Add content-specific enhancements
+    content_lower = content_prompt.lower()
+    enhancements = []
+    for keyword, enhancement in CONTENT_ENHANCERS.items():
+        if keyword in content_lower:
+            enhancements.append(enhancement)
+    
+    if enhancements:
+        enhancement_text = "\n\nADDITIONAL GUIDANCE:\n" + "\n".join(enhancements)
+        primary_full += enhancement_text
+        secondary_full += enhancement_text
+    
+    return (primary_full, secondary_full)
+
+def load_custom_styles():
+    """Load custom styles from JSON file."""
+    if os.path.exists(CUSTOM_STYLES_PATH):
+        try:
+            with open(CUSTOM_STYLES_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load custom styles: {e}")
+    return {}
+
+def save_custom_styles(styles):
+    """Save custom styles to JSON file."""
+    try:
+        with open(CUSTOM_STYLES_PATH, 'w') as f:
+            json.dump(styles, f, indent=2)
+        return True
+    except IOError as e:
+        print(f"Error saving custom styles: {e}")
+        return False
+
+def get_all_styles():
+    """Get all available styles (built-in + custom)."""
+    all_styles = {}
+    
+    # Add built-in styles
+    for name, prompt in STYLE_PRESETS.items():
+        all_styles[name] = {
+            'name': name,
+            'prompt': prompt,
+            'builtin': True,
+            'description': get_style_description(name)
+        }
+    
+    # Add custom styles
+    custom_styles = load_custom_styles()
+    for name, data in custom_styles.items():
+        all_styles[name] = {
+            'name': name,
+            'prompt': data.get('prompt', ''),
+            'builtin': False,
+            'description': data.get('description', 'Custom style')
+        }
+    
+    return all_styles
+
+def get_style_description(name):
+    """Get a short description for a built-in style."""
+    descriptions = {
+        'neuroscience': 'Whiteboard-style neuroscience diagrams with anatomical accuracy',
+        'medical': 'Professional medical textbook illustration style',
+        'whiteboard': 'Simple hand-drawn whiteboard diagrams',
+        'minimal': 'Very simple, clean minimal diagrams',
+        'no-labels': 'Visual diagrams with no text labels',
+        'reboot': 'Photorealistic 3D renders with natural backgrounds and scientific accuracy',
+        'custom': 'Your own custom style'
+    }
+    return descriptions.get(name, 'Image style preset')
+
+def save_new_style(name, prompt, description='Custom style'):
+    """Save a new custom style."""
+    custom_styles = load_custom_styles()
+    custom_styles[name] = {
+        'prompt': prompt,
+        'description': description
+    }
+    return save_custom_styles(custom_styles)
+
+def delete_custom_style(name):
+    """Delete a custom style."""
+    custom_styles = load_custom_styles()
+    if name in custom_styles:
+        del custom_styles[name]
+        return save_custom_styles(custom_styles)
+    return False
+
+def set_current_style(preset_name=None, custom_prompt=None):
+    """Set the current style for image generation."""
+    global _current_style_preset, _current_style_prompt
+    
+    if custom_prompt:
+        _current_style_prompt = custom_prompt
+        _current_style_preset = None
+    elif preset_name:
+        _current_style_preset = preset_name
+        _current_style_prompt = None
+    
+def get_current_style_info():
+    """Get info about the current style."""
+    global _current_style_preset, _current_style_prompt
+    
+    if _current_style_prompt:
+        return {
+            'preset': None,
+            'prompt': _current_style_prompt,
+            'is_custom': True
+        }
+    
+    preset = _current_style_preset or STYLE_PRESET
+    all_styles = get_all_styles()
+    
+    if preset in all_styles:
+        return {
+            'preset': preset,
+            'prompt': all_styles[preset]['prompt'],
+            'is_custom': not all_styles[preset].get('builtin', True)
+        }
+    
+    return {
+        'preset': 'neuroscience',
+        'prompt': STYLE_PRESETS['neuroscience'],
+        'is_custom': False
+    }
+
+def get_style_prompt(preset_name=None):
+    """Get the style prompt for a specific preset or the current style."""
+    global _current_style_preset, _current_style_prompt
+    
+    # If a specific preset is requested
+    if preset_name:
+        all_styles = get_all_styles()
+        if preset_name in all_styles:
+            return all_styles[preset_name]['prompt']
+        return STYLE_PRESETS.get(preset_name, STYLE_PRESETS['neuroscience'])
+    
+    # If custom prompt is set, use it
+    if _current_style_prompt:
+        return _current_style_prompt
+    
+    # Use current preset
+    preset = _current_style_preset or STYLE_PRESET
+    all_styles = get_all_styles()
+    
+    if preset in all_styles:
+        return all_styles[preset]['prompt']
+    
+    return STYLE_PRESETS.get(preset, STYLE_PRESETS['neuroscience'])
+
+def get_enhanced_prompt(base_prompt: str) -> str:
+    """Enhance a prompt with style instructions and content-specific tips."""
+    style = get_style_prompt()
+    
+    # Check for content-specific enhancements
+    enhancements = []
+    base_lower = base_prompt.lower()
+    
+    for keyword, enhancement in CONTENT_ENHANCERS.items():
+        if keyword in base_lower:
+            enhancements.append(enhancement)
+    
+    # Build final prompt
+    final_prompt = f"{style}\n\nCONTENT TO ILLUSTRATE:\n{base_prompt}"
+    
+    if enhancements:
+        final_prompt += f"\n\nADDITIONAL GUIDANCE:\n" + "\n".join(enhancements)
+    
+    return final_prompt

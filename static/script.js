@@ -4,9 +4,1640 @@ let presentationPageIndex = 0;
 let isProcessing = false;
 let imageQueue = [];
 let isGeneratingImage = false;
+let outlineMode = true; // Default to outline mode
+let slideOnlyMode = false; // Shows just the slide without controls/TOC
 
-document.getElementById('process-btn').addEventListener('click', processTextProgressive);
+// Chapter summary image state
+let chapterSummaryImageData = null; // Base64 data URL of chapter summary image
+let chapterNumber = null; // Detected chapter number from loaded file
+let totalSlidesPlanned = 0; // Track total slides for determining "last" slide
+
+// Style management state
+let availableStyles = {};
+let currentStylePreset = 'neuroscience';
+let styleEditorOpen = false;
+
+// Dual-style state
+let dualStyleEnabled = true;
+let dualStyleConfig = {
+    primary: 'neuroscience',
+    secondary: 'reboot'
+};
+let currentDisplayStyle = 'primary'; // 'primary' or 'secondary' - persists across slides
+
+document.getElementById('process-btn').addEventListener('click', processText);
 document.getElementById('clear-btn').addEventListener('click', clearInput);
+
+// ============================================
+// Style Management Functions
+// ============================================
+
+// Initialize style selector on page load
+async function initializeStyleSelector() {
+    try {
+        // Fetch available styles from server
+        const response = await fetch('/api/styles');
+        if (!response.ok) throw new Error('Failed to load styles');
+        
+        const data = await response.json();
+        availableStyles = data.styles;
+        
+        // Populate all select dropdowns
+        populateStyleSelect();
+        populateStyleSelectById('primary-style-select');
+        populateStyleSelectById('secondary-style-select');
+        
+        // Get current style
+        const currentResponse = await fetch('/api/current-style');
+        if (currentResponse.ok) {
+            const currentStyle = await currentResponse.json();
+            currentStylePreset = currentStyle.preset || 'neuroscience';
+        }
+        
+        // Initialize the prompt editors
+        updatePrimaryPromptEditor();
+        updateSecondaryPromptEditor();
+        
+        console.log('✓ Style selector initialized with', Object.keys(availableStyles).length, 'styles');
+    } catch (error) {
+        console.error('Error initializing style selector:', error);
+    }
+}
+
+function populateStyleSelectById(selectId) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+    
+    // Remember current selection
+    const currentValue = selectEl.value;
+    
+    // Clear and repopulate
+    selectEl.innerHTML = '';
+    
+    // Group styles: built-in first, then custom
+    const builtinStyles = [];
+    const customStyles = [];
+    
+    for (const [name, style] of Object.entries(availableStyles)) {
+        if (style.builtin) {
+            builtinStyles.push({ name, ...style });
+        } else {
+            customStyles.push({ name, ...style });
+        }
+    }
+    
+    // Add built-in styles
+    builtinStyles.forEach(style => {
+        const option = document.createElement('option');
+        option.value = style.name;
+        option.textContent = formatStyleName(style.name);
+        selectEl.appendChild(option);
+    });
+    
+    // Add custom styles
+    if (customStyles.length > 0) {
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '── Custom Styles ──';
+        selectEl.appendChild(separator);
+        
+        customStyles.forEach(style => {
+            const option = document.createElement('option');
+            option.value = style.name;
+            option.textContent = formatStyleName(style.name) + ' ⭐';
+            selectEl.appendChild(option);
+        });
+    }
+    
+    // Restore selection
+    if (currentValue && availableStyles[currentValue]) {
+        selectEl.value = currentValue;
+    }
+}
+
+function populateStyleSelect() {
+    const selectEl = document.getElementById('style-preset-select');
+    if (!selectEl) return;
+    
+    // Clear existing options
+    selectEl.innerHTML = '';
+    
+    // Group styles: built-in first, then custom
+    const builtinStyles = [];
+    const customStyles = [];
+    
+    for (const [name, style] of Object.entries(availableStyles)) {
+        if (style.builtin) {
+            builtinStyles.push({ name, ...style });
+        } else {
+            customStyles.push({ name, ...style });
+        }
+    }
+    
+    // Add built-in styles
+    if (builtinStyles.length > 0) {
+        const builtinGroup = document.createElement('optgroup');
+        builtinGroup.label = 'Built-in Styles';
+        
+        builtinStyles.forEach(style => {
+            const option = document.createElement('option');
+            option.value = style.name;
+            option.textContent = formatStyleName(style.name);
+            if (style.name === currentStylePreset) option.selected = true;
+            builtinGroup.appendChild(option);
+        });
+        
+        selectEl.appendChild(builtinGroup);
+    }
+    
+    // Add custom styles
+    if (customStyles.length > 0) {
+        const customGroup = document.createElement('optgroup');
+        customGroup.label = 'Custom Styles';
+        
+        customStyles.forEach(style => {
+            const option = document.createElement('option');
+            option.value = style.name;
+            option.textContent = formatStyleName(style.name) + ' ⭐';
+            if (style.name === currentStylePreset) option.selected = true;
+            customGroup.appendChild(option);
+        });
+        
+        selectEl.appendChild(customGroup);
+    }
+}
+
+function formatStyleName(name) {
+    // Convert kebab-case or snake_case to Title Case
+    return name
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function updateStyleDescription(styleName) {
+    const descEl = document.getElementById('style-description');
+    if (!descEl || !availableStyles[styleName]) return;
+    
+    descEl.textContent = availableStyles[styleName].description || 'Image style preset';
+}
+
+function updateStyleEditor(styleName) {
+    const editorEl = document.getElementById('style-prompt-editor');
+    const deleteBtn = document.getElementById('delete-style-btn');
+    
+    if (!editorEl || !availableStyles[styleName]) return;
+    
+    editorEl.value = availableStyles[styleName].prompt || '';
+    
+    // Show/hide delete button based on whether it's a custom style
+    if (deleteBtn) {
+        if (availableStyles[styleName].builtin) {
+            deleteBtn.classList.add('hidden');
+        } else {
+            deleteBtn.classList.remove('hidden');
+        }
+    }
+}
+
+async function onStyleSelectChange(event) {
+    const styleName = event.target.value;
+    currentStylePreset = styleName;
+    
+    updateStyleDescription(styleName);
+    updateStyleEditor(styleName);
+    
+    // Apply the style on the server
+    try {
+        await fetch('/api/set-style', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preset: styleName })
+        });
+        console.log('Style changed to:', styleName);
+    } catch (error) {
+        console.error('Error setting style:', error);
+    }
+}
+
+function toggleStyleEditor() {
+    const panel = document.getElementById('style-editor-panel');
+    const toggleBtn = document.getElementById('toggle-style-editor');
+    
+    if (!panel || !toggleBtn) return;
+    
+    styleEditorOpen = !styleEditorOpen;
+    
+    if (styleEditorOpen) {
+        panel.classList.remove('hidden');
+        toggleBtn.textContent = 'Hide Style Prompts';
+        // Populate both prompt editors
+        updatePrimaryPromptEditor();
+        updateSecondaryPromptEditor();
+    } else {
+        panel.classList.add('hidden');
+        toggleBtn.textContent = 'Edit Style Prompts';
+    }
+}
+
+async function applyStyleChanges() {
+    const editorEl = document.getElementById('style-prompt-editor');
+    if (!editorEl) return;
+    
+    const customPrompt = editorEl.value.trim();
+    
+    if (!customPrompt) {
+        alert('Please enter a style prompt.');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/set-style', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ custom_prompt: customPrompt })
+        });
+        
+        if (!response.ok) throw new Error('Failed to apply style');
+        
+        console.log('Custom style applied');
+        alert('Style changes applied! New images will use this prompt.');
+    } catch (error) {
+        console.error('Error applying style:', error);
+        alert('Error applying style: ' + error.message);
+    }
+}
+
+function resetStyleToDefault() {
+    const selectEl = document.getElementById('style-preset-select');
+    if (!selectEl) return;
+    
+    const styleName = selectEl.value;
+    updateStyleEditor(styleName);
+}
+
+async function saveNewStyle() {
+    const nameEl = document.getElementById('new-style-name');
+    const descEl = document.getElementById('new-style-description');
+    const editorEl = document.getElementById('style-prompt-editor');
+    
+    if (!nameEl || !editorEl) return;
+    
+    const name = nameEl.value.trim();
+    const description = descEl ? descEl.value.trim() : '';
+    const prompt = editorEl.value.trim();
+    
+    if (!name) {
+        alert('Please enter a name for the new style.');
+        nameEl.focus();
+        return;
+    }
+    
+    if (!prompt) {
+        alert('Please enter a prompt for the style.');
+        editorEl.focus();
+        return;
+    }
+    
+    // Validate name format
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(name)) {
+        alert('Style name must start with a letter and contain only letters, numbers, underscores, and hyphens.');
+        nameEl.focus();
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/save-style', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                prompt: prompt,
+                description: description || `Custom style: ${name}`
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to save style');
+        }
+        
+        // Update available styles
+        availableStyles = data.styles;
+        
+        // Repopulate the select and set the new style as current
+        populateStyleSelect();
+        
+        const selectEl = document.getElementById('style-preset-select');
+        if (selectEl) {
+            selectEl.value = name;
+        }
+        
+        currentStylePreset = name;
+        updateStyleDescription(name);
+        
+        // Clear the name input
+        nameEl.value = '';
+        if (descEl) descEl.value = '';
+        
+        alert(`Style "${name}" saved successfully!`);
+        console.log('New style saved:', name);
+    } catch (error) {
+        console.error('Error saving style:', error);
+        alert('Error saving style: ' + error.message);
+    }
+}
+
+async function deleteCurrentStyle() {
+    const selectEl = document.getElementById('style-preset-select');
+    if (!selectEl) return;
+    
+    const styleName = selectEl.value;
+    
+    if (!styleName || !availableStyles[styleName]) return;
+    
+    // Check if it's a built-in style
+    if (availableStyles[styleName].builtin) {
+        alert('Cannot delete built-in styles.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete the style "${styleName}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/delete-style', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: styleName })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to delete style');
+        }
+        
+        // Update available styles
+        availableStyles = data.styles;
+        
+        // Reset to neuroscience and repopulate
+        currentStylePreset = 'neuroscience';
+        populateStyleSelect();
+        
+        selectEl.value = 'neuroscience';
+        updateStyleDescription('neuroscience');
+        updateStyleEditor('neuroscience');
+        
+        alert(`Style "${styleName}" deleted.`);
+        console.log('Style deleted:', styleName);
+    } catch (error) {
+        console.error('Error deleting style:', error);
+        alert('Error deleting style: ' + error.message);
+    }
+}
+
+// Initialize style selector when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    initializeStyleSelector();
+    initializeDualStyleConfig();
+    
+    // Set up event listeners for style management
+    const styleSelect = document.getElementById('style-preset-select');
+    if (styleSelect) {
+        styleSelect.addEventListener('change', onStyleSelectChange);
+    }
+    
+    const toggleBtn = document.getElementById('toggle-style-editor');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleStyleEditor);
+    }
+    
+    const applyBtn = document.getElementById('apply-style-btn');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', applyStyleChanges);
+    }
+    
+    const resetBtn = document.getElementById('reset-style-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetStyleToDefault);
+    }
+    
+    const saveBtn = document.getElementById('save-style-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveNewStyle);
+    }
+    
+    const deleteBtn = document.getElementById('delete-style-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', deleteCurrentStyle);
+    }
+});
+
+// ============================================
+// Dual-Style Image Generation
+// ============================================
+
+async function initializeDualStyleConfig() {
+    try {
+        const response = await fetch('/api/dual-style-config');
+        if (response.ok) {
+            const config = await response.json();
+            dualStyleEnabled = config.enabled;
+            dualStyleConfig = {
+                primary: config.primary.name,
+                primaryDesc: config.primary.description,
+                secondary: config.secondary.name,
+                secondaryDesc: config.secondary.description
+            };
+            console.log('✓ Dual-style config loaded:', dualStyleConfig.primary, '+', dualStyleConfig.secondary);
+            updateStyleToggleButton();
+            updateDualStyleUI();
+        }
+        
+        // Set up event listeners for dual-style UI
+        setupDualStyleListeners();
+    } catch (error) {
+        console.error('Error loading dual-style config:', error);
+    }
+}
+
+function setupDualStyleListeners() {
+    // Dual mode toggle
+    const dualToggle = document.getElementById('dual-style-toggle');
+    if (dualToggle) {
+        dualToggle.checked = dualStyleEnabled;
+        dualToggle.addEventListener('change', function() {
+            dualStyleEnabled = this.checked;
+            updateDualStyleUI();
+            saveDualStyleConfig();
+        });
+    }
+    
+    // Primary style select
+    const primarySelect = document.getElementById('primary-style-select');
+    if (primarySelect) {
+        primarySelect.addEventListener('change', function() {
+            dualStyleConfig.primary = this.value;
+            updatePrimaryStyleDesc();
+            updatePrimaryPromptEditor();
+            updateStyleToggleButton();
+            saveDualStyleConfig();
+        });
+    }
+    
+    // Secondary style select
+    const secondarySelect = document.getElementById('secondary-style-select');
+    if (secondarySelect) {
+        secondarySelect.addEventListener('change', function() {
+            dualStyleConfig.secondary = this.value;
+            updateSecondaryStyleDesc();
+            updateSecondaryPromptEditor();
+            updateStyleToggleButton();
+            saveDualStyleConfig();
+        });
+    }
+}
+
+async function saveDualStyleConfig() {
+    try {
+        const response = await fetch('/api/dual-style-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                enabled: dualStyleEnabled,
+                primary: dualStyleConfig.primary,
+                secondary: dualStyleConfig.secondary
+            })
+        });
+        
+        if (response.ok) {
+            console.log('Dual-style config saved:', dualStyleConfig.primary, '+', dualStyleConfig.secondary);
+        }
+    } catch (error) {
+        console.error('Error saving dual-style config:', error);
+    }
+}
+
+function updateDualStyleUI() {
+    const secondaryGroup = document.getElementById('secondary-style-group');
+    const dualHint = document.querySelector('.dual-style-hint');
+    
+    if (secondaryGroup) {
+        if (dualStyleEnabled) {
+            secondaryGroup.classList.remove('disabled');
+        } else {
+            secondaryGroup.classList.add('disabled');
+        }
+    }
+    
+    if (dualHint) {
+        dualHint.textContent = dualStyleEnabled 
+            ? 'Generate both styles for each slide (toggle to view either)'
+            : 'Single style mode - only primary style will be generated';
+    }
+    
+    // Update selects to match config
+    const primarySelect = document.getElementById('primary-style-select');
+    const secondarySelect = document.getElementById('secondary-style-select');
+    
+    if (primarySelect) primarySelect.value = dualStyleConfig.primary;
+    if (secondarySelect) secondarySelect.value = dualStyleConfig.secondary;
+    
+    updatePrimaryStyleDesc();
+    updateSecondaryStyleDesc();
+}
+
+function updatePrimaryStyleDesc() {
+    const descEl = document.getElementById('primary-style-desc');
+    const nameEl = document.getElementById('primary-style-name');
+    if (descEl && availableStyles[dualStyleConfig.primary]) {
+        descEl.textContent = availableStyles[dualStyleConfig.primary].description || '';
+    }
+    if (nameEl) nameEl.textContent = dualStyleConfig.primary;
+}
+
+function updateSecondaryStyleDesc() {
+    const descEl = document.getElementById('secondary-style-desc');
+    const nameEl = document.getElementById('secondary-style-name');
+    if (descEl && availableStyles[dualStyleConfig.secondary]) {
+        descEl.textContent = availableStyles[dualStyleConfig.secondary].description || '';
+    }
+    if (nameEl) nameEl.textContent = dualStyleConfig.secondary;
+}
+
+function updatePrimaryPromptEditor() {
+    const editor = document.getElementById('primary-prompt-editor');
+    if (editor && availableStyles[dualStyleConfig.primary]) {
+        editor.value = availableStyles[dualStyleConfig.primary].prompt || '';
+    }
+}
+
+function updateSecondaryPromptEditor() {
+    const editor = document.getElementById('secondary-prompt-editor');
+    if (editor && availableStyles[dualStyleConfig.secondary]) {
+        editor.value = availableStyles[dualStyleConfig.secondary].prompt || '';
+    }
+}
+
+function switchStyleTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.style-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    
+    // Update tab content
+    document.getElementById('primary-prompt-tab').classList.toggle('hidden', tab !== 'primary');
+    document.getElementById('primary-prompt-tab').classList.toggle('active', tab === 'primary');
+    document.getElementById('secondary-prompt-tab').classList.toggle('hidden', tab !== 'secondary');
+    document.getElementById('secondary-prompt-tab').classList.toggle('active', tab === 'secondary');
+}
+
+function toggleDisplayStyle() {
+    currentDisplayStyle = currentDisplayStyle === 'primary' ? 'secondary' : 'primary';
+    updateStyleToggleButton();
+    updateAllSlideImages();
+}
+
+function updateStyleToggleButton() {
+    const toggleBtns = document.querySelectorAll('.style-toggle-btn');
+    toggleBtns.forEach(btn => {
+        if (currentDisplayStyle === 'primary') {
+            btn.innerHTML = `🎨 ${formatStyleName(dualStyleConfig.primary)}`;
+            btn.title = `Currently showing ${dualStyleConfig.primary} style. Click to switch to ${dualStyleConfig.secondary}.`;
+        } else {
+            btn.innerHTML = `🎨 ${formatStyleName(dualStyleConfig.secondary)}`;
+            btn.title = `Currently showing ${dualStyleConfig.secondary} style. Click to switch to ${dualStyleConfig.primary}.`;
+        }
+    });
+}
+
+function updateAllSlideImages() {
+    // Update all visible slide images to show the current style
+    pages.forEach((page, index) => {
+        updateSlideImageDisplay(index);
+    });
+}
+
+function updateSlideImageDisplay(index) {
+    const viewer = document.getElementById(`viewer-${index}`);
+    if (!viewer) return;
+    
+    const page = pages[index];
+    if (!page) return;
+    
+    // Determine which image to show
+    let imageUrl = null;
+    if (currentDisplayStyle === 'primary' && page.primaryImageData) {
+        imageUrl = page.primaryImageData;
+    } else if (currentDisplayStyle === 'secondary' && page.secondaryImageData) {
+        imageUrl = page.secondaryImageData;
+    } else if (page.imageData) {
+        // Fallback to single image if dual not available
+        imageUrl = page.imageData;
+    }
+    
+    if (imageUrl) {
+        const existingImg = viewer.querySelector('.slide-image');
+        if (existingImg) {
+            existingImg.src = imageUrl;
+        } else {
+            viewer.innerHTML = `<img src="${imageUrl}" alt="Generated illustration" class="slide-image" id="img-${index}">`;
+            initializeImageViewer(index);
+        }
+    }
+}
+
+// Queue dual image generation
+function queueDualImageGeneration(index, prompt) {
+    // Check if this is intro or summary slide and we have a chapter summary image
+    const page = pages[index];
+    const isIntroSlide = index === 0 || (page && page.slide_type === 'intro');
+    const isSummarySlide = page && page.slide_type === 'summary';
+    
+    if (chapterSummaryImageData && (isIntroSlide || isSummarySlide)) {
+        // Use the chapter summary image directly instead of generating
+        const slideType = isIntroSlide ? 'intro' : 'summary';
+        console.log(`Using chapter summary image for slide ${index + 1} (${slideType} slide)`);
+        applyChapterSummaryImage(index);
+        return;
+    }
+    
+    if (dualStyleEnabled) {
+        imageQueue.push({ index, prompt, dual: true });
+    } else {
+        imageQueue.push({ index, prompt, dual: false });
+    }
+    processImageQueue();
+}
+
+// Apply the chapter summary image to a slide
+function applyChapterSummaryImage(index) {
+    const viewer = document.getElementById(`viewer-${index}`);
+    if (!viewer) return;
+    
+    // Set the image in the viewer
+    viewer.innerHTML = `<img src="${chapterSummaryImageData}" alt="Chapter Summary" class="slide-image" id="img-${index}">`;
+    
+    // Store in pages array (same image for both styles)
+    if (pages[index]) {
+        pages[index].primaryImageData = chapterSummaryImageData;
+        pages[index].secondaryImageData = chapterSummaryImageData;
+        pages[index].imageData = chapterSummaryImageData;
+        pages[index].primaryStyle = 'chapter-summary';
+        pages[index].secondaryStyle = 'chapter-summary';
+    }
+    
+    // Initialize viewer
+    setTimeout(() => {
+        initializeImageViewer(index);
+        setTimeout(() => resetImage(index), 100);
+    }, 50);
+}
+
+async function processImageQueue() {
+    if (isGeneratingImage || imageQueue.length === 0) return;
+    
+    isGeneratingImage = true;
+    const item = imageQueue.shift();
+    
+    try {
+        if (item.dual) {
+            await generateDualImagesForSlide(item.index, item.prompt);
+        } else {
+            await generateImageForSlide(item.index, item.prompt);
+        }
+    } catch (error) {
+        console.error(`Error generating image for slide ${item.index}:`, error);
+    }
+    
+    isGeneratingImage = false;
+    
+    // Process next in queue
+    if (imageQueue.length > 0) {
+        processImageQueue();
+    }
+}
+
+async function generateDualImagesForSlide(index, prompt) {
+    const viewer = document.getElementById(`viewer-${index}`);
+    if (!viewer) return;
+    
+    // Show loading state
+    viewer.innerHTML = `
+        <div class="slide-image-generating">
+            <div class="spinner"></div>
+            <p>Generating dual-style images...</p>
+            <p class="generating-styles">${formatStyleName(dualStyleConfig.primary)} + ${formatStyleName(dualStyleConfig.secondary)}</p>
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/api/generate-dual-images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: prompt, page_id: index })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to generate images');
+        }
+        
+        const data = await response.json();
+        
+        // Store both images in the page data
+        if (pages[index]) {
+            if (data.primary && data.primary.image_url) {
+                pages[index].primaryImageData = data.primary.image_url;
+                pages[index].primaryStyle = data.primary.style;
+            }
+            if (data.secondary && data.secondary.image_url) {
+                pages[index].secondaryImageData = data.secondary.image_url;
+                pages[index].secondaryStyle = data.secondary.style;
+            }
+            // Also set imageData to primary for backwards compatibility
+            pages[index].imageData = pages[index].primaryImageData || pages[index].secondaryImageData;
+        }
+        
+        // Display the current style
+        updateSlideImageDisplay(index);
+        
+        // Initialize viewer
+        setTimeout(() => {
+            initializeImageViewer(index);
+            setTimeout(() => resetImage(index), 100);
+        }, 50);
+        
+        // Log results
+        const primaryOk = data.primary && data.primary.image_url ? '✓' : '✗';
+        const secondaryOk = data.secondary && data.secondary.image_url ? '✓' : '✗';
+        console.log(`Slide ${index}: Primary ${primaryOk}, Secondary ${secondaryOk}`);
+        
+    } catch (error) {
+        viewer.innerHTML = `<div class="slide-image-placeholder">❌ Error: ${escapeHtml(error.message)}<br><button onclick="regenerateDualImages(${index})" class="btn btn-secondary btn-small">Retry</button></div>`;
+    }
+}
+
+function regenerateDualImages(index) {
+    if (index >= pages.length) return;
+    
+    const page = pages[index];
+    const viewer = document.getElementById(`viewer-${index}`);
+    
+    if (viewer) {
+        viewer.innerHTML = `
+            <div class="slide-image-generating">
+                <div class="spinner"></div>
+                <p>Regenerating images...</p>
+            </div>
+        `;
+    }
+    
+    // Get the prompt from the editor if available
+    const promptTextarea = document.getElementById(`prompt-editor-${index}`);
+    const prompt = promptTextarea ? promptTextarea.value.trim() : page.image_prompt;
+    
+    // Add to front of queue for immediate processing
+    imageQueue.unshift({ index, prompt, dual: dualStyleEnabled });
+    processImageQueue();
+}
+
+// Generate a new image prompt using AI based on slide content
+async function generateNewPrompt(index) {
+    if (index >= pages.length) return;
+    
+    const page = pages[index];
+    const promptTextarea = document.getElementById(`prompt-editor-${index}`);
+    const generateBtn = event.target;
+    
+    if (!promptTextarea) return;
+    
+    // Show loading state
+    const originalText = generateBtn.textContent;
+    generateBtn.textContent = '⏳ Generating...';
+    generateBtn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/generate-image-prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: page.title || '',
+                topic: page.topic || '',
+                subtopic: page.subtopic || '',
+                main_points: page.main_points || [],
+                current_prompt: promptTextarea.value.trim(),
+                slide_type: page.slide_type || 'subtopic'
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to generate prompt');
+        }
+        
+        const data = await response.json();
+        
+        if (data.prompt) {
+            // Update the textarea with the new prompt
+            promptTextarea.value = data.prompt;
+            
+            // Also update the page data
+            if (pages[index]) {
+                pages[index].image_prompt = data.prompt;
+            }
+            
+            console.log(`✓ Generated new prompt for slide ${index + 1}`);
+        }
+        
+    } catch (error) {
+        console.error('Error generating prompt:', error);
+        alert('Failed to generate prompt: ' + error.message);
+    } finally {
+        generateBtn.textContent = originalText;
+        generateBtn.disabled = false;
+    }
+}
+
+// Generate new prompt AND immediately regenerate images
+async function generatePromptAndRegenerate(index) {
+    await generateNewPrompt(index);
+    regenerateDualImages(index);
+}
+
+// Outline mode toggle
+const outlineModeToggle = document.getElementById('outline-mode-toggle');
+if (outlineModeToggle) {
+    outlineModeToggle.addEventListener('change', function() {
+        outlineMode = this.checked;
+        updateOutlineModeUI();
+    });
+    // Initialize UI state
+    updateOutlineModeUI();
+}
+
+// HTML file upload handler
+const htmlFileInput = document.getElementById('html-file-input');
+if (htmlFileInput) {
+    htmlFileInput.addEventListener('change', handleHtmlFileUpload);
+}
+
+// Extract chapter number from filename or content
+function extractChapterNumber(filename, htmlContent) {
+    // Try to extract from filename first (e.g., "Chapter5.html", "Ch5.html", "chapter_5.html")
+    const filenameMatch = filename.match(/chapter[_\s-]*(\d+)/i) || filename.match(/ch[_\s-]*(\d+)/i);
+    if (filenameMatch) {
+        return parseInt(filenameMatch[1], 10);
+    }
+    
+    // Try to extract from HTML content (e.g., "Chapter 5 —" in title)
+    const contentMatch = htmlContent.match(/chapter\s*(\d+)/i);
+    if (contentMatch) {
+        return parseInt(contentMatch[1], 10);
+    }
+    
+    return null;
+}
+
+// Try to load the chapter summary image
+async function loadChapterSummaryImage(chapterNum) {
+    if (chapterNum === null) {
+        console.log('No chapter number detected, skipping summary image load');
+        chapterSummaryImageData = null;
+        return false;
+    }
+    
+    // Try to load the image from the server
+    const imagePath = `/GeminiSummaryCh${chapterNum}.png`;
+    
+    try {
+        const response = await fetch(imagePath);
+        if (!response.ok) {
+            console.log(`Chapter summary image not found: ${imagePath}`);
+            chapterSummaryImageData = null;
+            return false;
+        }
+        
+        // Convert to base64 data URL
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                chapterSummaryImageData = reader.result;
+                console.log(`✓ Loaded chapter summary image: ${imagePath} (${Math.round(chapterSummaryImageData.length / 1024)}KB)`);
+                resolve(true);
+            };
+            reader.onerror = () => {
+                console.error('Error reading chapter summary image');
+                chapterSummaryImageData = null;
+                resolve(false);
+            };
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.log(`Could not load chapter summary image: ${error.message}`);
+        chapterSummaryImageData = null;
+        return false;
+    }
+}
+
+async function handleHtmlFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Show file name
+    const fileNameDisplay = document.getElementById('file-name-display');
+    if (fileNameDisplay) {
+        fileNameDisplay.textContent = file.name;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const htmlContent = e.target.result;
+        
+        // Extract chapter number and try to load summary image
+        chapterNumber = extractChapterNumber(file.name, htmlContent);
+        if (chapterNumber !== null) {
+            console.log(`Detected Chapter ${chapterNumber}`);
+            await loadChapterSummaryImage(chapterNumber);
+        } else {
+            chapterSummaryImageData = null;
+        }
+        
+        // Parse the HTML
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        // Extract title from <h1> or <title> tag
+        let title = '';
+        const h1Tag = doc.querySelector('h1');
+        const titleTag = doc.querySelector('title');
+        
+        if (h1Tag) {
+            title = h1Tag.textContent.trim();
+        } else if (titleTag) {
+            title = titleTag.textContent.trim();
+            // Remove "Chapter X — " prefix if present
+            title = title.replace(/^Chapter\s+\d+\s*[—-]\s*/i, '');
+        }
+        
+        // Set title input
+        const titleInput = document.getElementById('title-input');
+        if (titleInput && title) {
+            titleInput.value = title;
+        }
+        
+        // Extract outline - look for "LECTURE OUTLINE" text in a container
+        let outlineText = '';
+        let outlineContainer = null;
+        
+        // Find the element containing "LECTURE OUTLINE"
+        const allElements = doc.querySelectorAll('div, section, strong, b');
+        for (const el of allElements) {
+            // Check if this element directly contains "LECTURE OUTLINE" (not just a descendant)
+            if (el.textContent.includes('LECTURE OUTLINE')) {
+                // Find the containing div/section
+                outlineContainer = el.closest('div[style], section');
+                if (outlineContainer) {
+                    // Make sure this container is specifically the outline box, not a huge parent
+                    const containerText = outlineContainer.textContent;
+                    // Outline box should be relatively small (under 3000 chars typically)
+                    if (containerText.length < 5000 && containerText.includes('LECTURE OUTLINE')) {
+                        outlineText = extractOutlineText(outlineContainer);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Set outline input
+        const outlineInput = document.getElementById('outline-input');
+        if (outlineInput && outlineText) {
+            outlineInput.value = outlineText;
+        }
+        
+        // Extract main content, discussion questions, and quiz questions
+        let contentText = '';
+        let discussionText = '';
+        let quizText = '';
+        const mainElement = doc.querySelector('main') || doc.body;
+        
+        if (mainElement) {
+            const contentElements = mainElement.querySelectorAll('p, h2, h3, .stage, .lead, [class*="stage"]');
+            const contentParts = [];
+            const discussionParts = [];
+            const quizParts = [];
+            
+            let inDiscussionSection = false;
+            let inQuizSection = false;
+            
+            contentElements.forEach(el => {
+                // Skip if it's inside the outline container
+                if (outlineContainer && outlineContainer.contains(el)) return;
+                
+                // Skip elements that look like navigation or headers
+                const parent = el.closest('header, nav, footer, .quiz-notice');
+                if (parent) return;
+                
+                const text = el.textContent.trim();
+                
+                // Check for section markers
+                if (text.includes('Thought Questions') || text.includes('Discussion')) {
+                    inDiscussionSection = true;
+                    inQuizSection = false;
+                    return;
+                }
+                
+                if (text.includes('Practice Questions') || text.includes('Fill-in') || 
+                    text.match(/^•.*_+.*_+/m) || text.includes('_______')) {
+                    inDiscussionSection = false;
+                    inQuizSection = true;
+                }
+                
+                // Check if this looks like a fill-in-the-blank question
+                const isFillInBlank = text.includes('_______') || text.match(/^•.*_+/);
+                
+                // Skip navigation/preview elements
+                if (text.startsWith('[VIEW') || text.startsWith('[SEARCH') || 
+                    text.startsWith('[PREVIEW') || text.startsWith('Next:') ||
+                    text.includes('Answer Key')) {
+                    return;
+                }
+                
+                // Skip very short elements
+                if (text.length < 30) return;
+                
+                // Route to appropriate section
+                if (isFillInBlank) {
+                    quizParts.push(text);
+                } else if (inQuizSection && !isFillInBlank) {
+                    // End of quiz section
+                    inQuizSection = false;
+                } else if (inDiscussionSection) {
+                    // Check if we've moved past discussion to quiz
+                    if (text.includes('Practice Questions') || isFillInBlank) {
+                        inDiscussionSection = false;
+                        inQuizSection = true;
+                        if (isFillInBlank) quizParts.push(text);
+                    } else {
+                        discussionParts.push(text);
+                    }
+                } else {
+                    contentParts.push(text);
+                }
+            });
+            
+            contentText = contentParts.join('\n\n');
+            discussionText = discussionParts.join('\n\n');
+            quizText = quizParts.join('\n');
+        }
+        
+        // Set content inputs
+        const textInput = document.getElementById('text-input');
+        if (textInput && contentText) {
+            textInput.value = contentText;
+        }
+        
+        const discussionInput = document.getElementById('discussion-input');
+        if (discussionInput && discussionText) {
+            discussionInput.value = discussionText;
+        }
+        
+        const quizInput = document.getElementById('quiz-input');
+        if (quizInput && quizText) {
+            quizInput.value = quizText;
+        }
+        
+        // Show success message
+        const status = [];
+        status.push(`Title: ${title ? '"' + title.substring(0, 40) + '..."' : 'Not found'}`);
+        status.push(`Outline: ${outlineText ? outlineText.split('\n').length + ' lines' : 'Not found'}`);
+        status.push(`Content: ${contentText ? contentText.length + ' chars' : 'Not found'}`);
+        status.push(`Discussion: ${discussionText ? discussionParts.length + ' questions' : 'Not found'}`);
+        status.push(`Quiz: ${quizText ? quizParts.length + ' questions' : 'Not found'}`);
+        status.push(`Chapter Summary Image: ${chapterSummaryImageData ? '✓ Found (Ch.' + chapterNumber + ')' : 'Not found'}`);
+        
+        alert(`Loaded from ${file.name}:\n\n${status.join('\n')}`);
+    };
+    
+    reader.readAsText(file);
+}
+
+function extractOutlineText(element) {
+    // Get the HTML content and convert to structured text
+    let html = element.innerHTML;
+    
+    // Replace <br> tags with newlines
+    html = html.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Replace &nbsp; with spaces  
+    html = html.replace(/&nbsp;/g, '  '); // Use double space for indentation
+    
+    // Replace </strong> and </b> with newlines to separate topics
+    html = html.replace(/<\/(strong|b)>/gi, '\n');
+    
+    // Remove all HTML tags but preserve text
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    let text = tempDiv.textContent || tempDiv.innerText;
+    
+    // Clean up the text - preserve indentation for subtopics
+    const lines = text.split('\n');
+    const cleanedLines = [];
+    
+    for (let line of lines) {
+        // Trim trailing whitespace but preserve leading whitespace/bullets
+        line = line.trimEnd();
+        
+        // Skip empty lines
+        if (!line.trim()) continue;
+        
+        // Skip the header line
+        if (line.includes('LECTURE OUTLINE')) continue;
+        
+        // If line starts with bullet/dot, ensure consistent formatting
+        const trimmed = line.trim();
+        if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
+            cleanedLines.push('  ' + trimmed); // Indent subtopics
+        } else if (trimmed.match(/^[IVX]+\.|^\d+\./)) {
+            // This is a main topic (Roman numeral or number)
+            cleanedLines.push(trimmed);
+        } else if (line.startsWith(' ') || line.startsWith('\t')) {
+            // Already indented - it's a subtopic
+            cleanedLines.push('  ' + trimmed);
+        } else {
+            cleanedLines.push(trimmed);
+        }
+    }
+    
+    return cleanedLines.join('\n').trim();
+}
+
+function updateOutlineModeUI() {
+    const outlineSection = document.getElementById('outline-input-section');
+    const textLabel = document.getElementById('text-input-label');
+    const modeHint = document.getElementById('mode-hint');
+    const textInput = document.getElementById('text-input');
+    
+    if (outlineMode) {
+        if (outlineSection) outlineSection.classList.remove('hidden');
+        if (textLabel) textLabel.textContent = 'Full Chapter Text:';
+        if (modeHint) modeHint.textContent = 'Paste chapter outline + full text for structured slides';
+        if (textInput) textInput.placeholder = 'Paste the full chapter text here. The system will match content to your outline sections.';
+    } else {
+        if (outlineSection) outlineSection.classList.add('hidden');
+        if (textLabel) textLabel.textContent = 'Paste your lecture text here:';
+        if (modeHint) modeHint.textContent = 'Auto-split text into paragraphs for slides';
+        if (textInput) textInput.placeholder = 'Paste your textbook content, lecture notes, or any educational text here. The system will automatically organize it into pages with main points and generate illustrative images.';
+    }
+}
+
+// Main process function - routes to appropriate handler
+async function processText() {
+    if (outlineMode) {
+        await processOutlineBased();
+    } else {
+        await processTextProgressive();
+    }
+}
+
+// New: Outline-based processing with progressive slide generation
+async function processOutlineBased() {
+    const outlineInput = document.getElementById('outline-input').value.trim();
+    const textInput = document.getElementById('text-input').value.trim();
+    const titleInput = document.getElementById('title-input');
+    const chapterTitle = titleInput ? titleInput.value.trim() : '';
+    
+    // Get optional discussion and quiz questions
+    const discussionInput = document.getElementById('discussion-input');
+    const discussionQuestions = discussionInput ? discussionInput.value.trim() : '';
+    
+    const quizInput = document.getElementById('quiz-input');
+    const quizQuestions = quizInput ? quizInput.value.trim() : '';
+    
+    if (!outlineInput) {
+        showError('Please enter a chapter outline.');
+        return;
+    }
+    
+    if (!textInput) {
+        showError('Please enter the chapter text.');
+        return;
+    }
+    
+    if (isProcessing) {
+        alert('Already processing. Please wait.');
+        return;
+    }
+    
+    isProcessing = true;
+    pages = [];
+    imageQueue = [];
+    presentationPageIndex = 0;
+    
+    // Hide error, show loading
+    document.getElementById('error').classList.add('hidden');
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('pages-container').classList.add('hidden');
+    
+    try {
+        // Step 1: Parse the outline to get structure
+        const parseResponse = await fetch('/api/parse-outline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ outline: outlineInput })
+        });
+        
+        if (!parseResponse.ok) {
+            const errorData = await parseResponse.json();
+            throw new Error(errorData.error || 'Failed to parse outline');
+        }
+        
+        const parseData = await parseResponse.json();
+        const topics = parseData.topics;
+        
+        if (!topics || topics.length === 0) {
+            throw new Error('Could not parse outline. Please check the format.');
+        }
+        
+        // Build the slide plan
+        const slidePlan = buildSlidePlan(topics, discussionQuestions, quizQuestions);
+        
+        document.getElementById('loading').classList.add('hidden');
+        
+        // Enter presentation mode with placeholders
+        enterProgressivePresentationMode(slidePlan, chapterTitle);
+        
+        // Generate slides progressively
+        await generateSlidesProgressively(slidePlan, textInput, chapterTitle, topics, discussionQuestions, quizQuestions);
+        
+    } catch (error) {
+        showError(error.message);
+        document.getElementById('loading').classList.add('hidden');
+    } finally {
+        isProcessing = false;
+        updateProcessingStatus();
+    }
+}
+
+// Build a plan of slides to generate
+function buildSlidePlan(topics, discussionQuestions, quizQuestions) {
+    const plan = [];
+    
+    // Intro slide
+    plan.push({ type: 'intro', title: 'Chapter Introduction' });
+    
+    // Topics and subtopics
+    topics.forEach((topicData, topicIndex) => {
+        // Topic overview
+        plan.push({ 
+            type: 'topic_overview', 
+            title: topicData.topic,
+            topic: topicData.topic,
+            subtopics: topicData.subtopics,
+            topicIndex: topicIndex
+        });
+        
+        // Subtopics
+        topicData.subtopics.forEach((subtopic, subIndex) => {
+            plan.push({
+                type: 'subtopic',
+                title: subtopic,
+                topic: topicData.topic,
+                subtopic: subtopic,
+                topicIndex: topicIndex,
+                subtopicIndex: subIndex
+            });
+        });
+    });
+    
+    // Summary
+    plan.push({ type: 'summary', title: 'Chapter Summary' });
+    
+    // Discussion (if provided)
+    if (discussionQuestions) {
+        plan.push({ type: 'discussion', title: 'Discussion Questions' });
+    }
+    
+    // Quiz (if provided)
+    if (quizQuestions) {
+        plan.push({ type: 'quiz', title: 'Quiz Yourself' });
+    }
+    
+    return plan;
+}
+
+// Enter presentation mode with placeholder slides
+function enterProgressivePresentationMode(slidePlan, chapterTitle) {
+    // Track total slides for first/last detection (used for chapter summary images)
+    totalSlidesPlanned = slidePlan.length;
+    
+    const overlay = document.getElementById('presentation-overlay');
+    const content = document.getElementById('presentation-content');
+    const tocList = document.getElementById('toc-list');
+    
+    // Clear previous content
+    content.innerHTML = '';
+    tocList.innerHTML = '';
+    
+    presentationPageIndex = 0;
+    
+    // Track topic numbering
+    let topicNumber = 0;
+    const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+    
+    // Create placeholder TOC and slides
+    slidePlan.forEach((item, index) => {
+        // Create TOC item
+        const tocItem = document.createElement('div');
+        tocItem.id = `toc-item-${index}`;
+        tocItem.onclick = () => jumpToSlide(index);
+        
+        let tocLabel = '';
+        let tocClass = 'toc-item toc-loading';
+        
+        switch(item.type) {
+            case 'intro':
+                tocLabel = `<span class="toc-icon">📖</span> ${escapeHtml(chapterTitle || item.title)}`;
+                tocClass += ' toc-intro';
+                break;
+            case 'topic_overview':
+                topicNumber++;
+                const numeral = romanNumerals[topicNumber - 1] || topicNumber;
+                tocLabel = `<span class="toc-numeral">${numeral}.</span> ${escapeHtml(item.topic)}`;
+                tocClass += ' toc-topic';
+                break;
+            case 'subtopic':
+                tocLabel = `<span class="toc-bullet">•</span> ${escapeHtml(item.subtopic)}`;
+                tocClass += ' toc-subtopic';
+                break;
+            case 'summary':
+                tocLabel = `<span class="toc-icon">📝</span> ${escapeHtml(item.title)}`;
+                tocClass += ' toc-summary';
+                break;
+            case 'discussion':
+                tocLabel = `<span class="toc-icon">💭</span> ${escapeHtml(item.title)}`;
+                tocClass += ' toc-discussion';
+                break;
+            case 'quiz':
+                tocLabel = `<span class="toc-icon">✏️</span> ${escapeHtml(item.title)}`;
+                tocClass += ' toc-quiz';
+                break;
+        }
+        
+        if (index === 0) tocClass = tocClass.replace('toc-loading', 'active');
+        
+        tocItem.className = tocClass;
+        tocItem.innerHTML = `<span class="toc-item-title">${tocLabel}</span><span class="toc-loading-spinner">⏳</span>`;
+        tocList.appendChild(tocItem);
+        
+        // Create placeholder slide
+        const slide = document.createElement('div');
+        slide.className = `slide ${index === 0 ? 'active' : ''}`;
+        slide.id = `slide-${index}`;
+        slide.innerHTML = `
+            <div class="slide-loading-placeholder">
+                <div class="spinner"></div>
+                <p>Generating slide ${index + 1} of ${slidePlan.length}...</p>
+                <p class="slide-loading-title">${escapeHtml(item.title || item.topic || item.subtopic)}</p>
+            </div>
+        `;
+        content.appendChild(slide);
+    });
+    
+    overlay.classList.remove('hidden');
+    document.addEventListener('keydown', handlePresentationKeys);
+    updateProgressCounter(0, slidePlan.length);
+}
+
+// Generate slides one at a time
+async function generateSlidesProgressively(slidePlan, contentText, chapterTitle, topics, discussionQuestions, quizQuestions) {
+    for (let i = 0; i < slidePlan.length; i++) {
+        const item = slidePlan[i];
+        
+        try {
+            // Build request based on slide type
+            const requestBody = {
+                slide_type: item.type,
+                content: contentText,
+                title: chapterTitle,
+                topics: topics
+            };
+            
+            if (item.type === 'topic_overview') {
+                requestBody.topic = item.topic;
+                requestBody.subtopics = item.subtopics;
+            } else if (item.type === 'subtopic') {
+                requestBody.topic = item.topic;
+                requestBody.subtopic = item.subtopic;
+            } else if (item.type === 'discussion') {
+                requestBody.discussion_questions = discussionQuestions;
+            } else if (item.type === 'quiz') {
+                requestBody.quiz_questions = quizQuestions;
+            }
+            
+            const response = await fetch('/api/generate-slide', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to generate slide ${i + 1}`);
+            }
+            
+            const slideData = await response.json();
+            slideData.id = i + 1;
+            slideData.slide_type = item.type;
+            if (item.topic) slideData.topic = item.topic;
+            if (item.subtopic) slideData.subtopic = item.subtopic;
+            
+            // Add to pages array
+            pages[i] = slideData;
+            
+            // Update the slide in the DOM
+            updateSlideContent(i, slideData);
+            
+            // Update TOC item to show completion
+            updateTOCItemComplete(i, slideData.title);
+            
+            // Update progress counter
+            updateProgressCounter(i + 1, slidePlan.length);
+            
+            // Queue image generation
+            if (slideData.image_prompt) {
+                queueImageGeneration(i, slideData.image_prompt);
+            }
+            
+        } catch (error) {
+            console.error(`Error generating slide ${i}:`, error);
+            // Mark as error in TOC
+            const tocItem = document.getElementById(`toc-item-${i}`);
+            if (tocItem) {
+                tocItem.classList.remove('toc-loading');
+                tocItem.classList.add('toc-error');
+            }
+        }
+    }
+}
+
+// Update a slide's content after it's generated
+function updateSlideContent(index, slideData) {
+    const slideElement = document.getElementById(`slide-${index}`);
+    if (!slideElement) return;
+    
+    slideElement.innerHTML = `
+        <h2 class="slide-title">${escapeHtml(slideData.title)}</h2>
+        
+        <div class="slide-body">
+            <div class="slide-left">
+                <div class="slide-image-container">
+                    <div class="slide-image-viewer" id="viewer-${index}">
+                        <div class="slide-image-generating">
+                            <div class="spinner"></div>
+                            <p>Generating dual-style images...</p>
+                        </div>
+                    </div>
+                    <div class="slide-image-controls">
+                        <button onclick="toggleDisplayStyle()" class="style-toggle-btn btn-style-toggle">🎨 ${formatStyleName(dualStyleConfig.primary)}</button>
+                        <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
+                        <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
+                        <button onclick="resetImage(${index})">↺</button>
+                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                        <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
+                    </div>
+                    <div class="slide-image-prompt-editor">
+                        <label><strong>Image Prompt:</strong> <button onclick="generateNewPrompt(${index})" class="btn-generate-prompt" title="Generate a new prompt based on slide content">✨ Generate</button></label>
+                        <textarea id="prompt-editor-${index}" class="prompt-textarea">${escapeHtml(slideData.image_prompt || '')}</textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="slide-resizer" onmousedown="startResize(event)"></div>
+            
+            <div class="slide-right" id="slide-right-${index}">
+                ${slideData.main_points && slideData.main_points.length > 0 ? `
+                    <div class="slide-main-points" id="main-points-${index}">
+                        <ul>
+                            ${slideData.main_points.map(point => `<li>${escapeHtml(point)}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+// Update TOC item when slide is complete
+function updateTOCItemComplete(index, title) {
+    const tocItem = document.getElementById(`toc-item-${index}`);
+    if (!tocItem) return;
+    
+    tocItem.classList.remove('toc-loading');
+    
+    // Remove the loading spinner
+    const spinner = tocItem.querySelector('.toc-loading-spinner');
+    if (spinner) spinner.remove();
+}
+
+// Update progress counter during generation
+function updateProgressCounter(completed, total) {
+    const counter = document.getElementById('present-counter');
+    if (counter) {
+        if (completed < total) {
+            counter.textContent = `Generating: ${completed}/${total} slides ready`;
+        } else {
+            counter.textContent = `Slide ${presentationPageIndex + 1} of ${total}`;
+        }
+    }
+}
+
+// Enter presentation mode with pre-generated slides
+function enterPresentationModeWithSlides(slidesData) {
+    // Track total slides for first/last detection
+    totalSlidesPlanned = slidesData.length;
+    
+    const overlay = document.getElementById('presentation-overlay');
+    const content = document.getElementById('presentation-content');
+    const tocList = document.getElementById('toc-list');
+    
+    // Clear previous content
+    content.innerHTML = '';
+    tocList.innerHTML = '';
+    
+    presentationPageIndex = 0;
+    
+    // Track topic numbering for hierarchical TOC
+    let topicNumber = 0;
+    const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+    let subtopicCounters = {}; // Track subtopics per topic
+    let currentTopic = '';
+    
+    // Build all slides at once
+    slidesData.forEach((slideData, index) => {
+        // Add to TOC with hierarchical structure
+        const tocItem = document.createElement('div');
+        tocItem.id = `toc-item-${index}`;
+        tocItem.onclick = () => jumpToSlide(index);
+        
+        let tocLabel = '';
+        let tocClass = 'toc-item';
+        
+        switch(slideData.slide_type) {
+            case 'intro':
+                tocLabel = `<span class="toc-icon">📖</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-intro';
+                break;
+                
+            case 'topic_overview':
+                topicNumber++;
+                currentTopic = slideData.topic || slideData.title;
+                subtopicCounters[currentTopic] = 0;
+                const numeral = romanNumerals[topicNumber - 1] || topicNumber;
+                tocLabel = `<span class="toc-numeral">${numeral}.</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-topic';
+                break;
+                
+            case 'subtopic':
+                subtopicCounters[currentTopic] = (subtopicCounters[currentTopic] || 0) + 1;
+                tocLabel = `<span class="toc-bullet">•</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-subtopic';
+                break;
+                
+            case 'summary':
+                tocLabel = `<span class="toc-icon">📝</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-summary';
+                break;
+                
+            case 'discussion':
+                tocLabel = `<span class="toc-icon">💭</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-discussion';
+                break;
+                
+            case 'quiz':
+                tocLabel = `<span class="toc-icon">✏️</span> ${escapeHtml(slideData.title)}`;
+                tocClass += ' toc-quiz';
+                break;
+                
+            default:
+                tocLabel = escapeHtml(slideData.title);
+        }
+        
+        if (index === 0) tocClass += ' active';
+        
+        tocItem.className = tocClass;
+        tocItem.innerHTML = `<span class="toc-item-title">${tocLabel}</span>`;
+        tocList.appendChild(tocItem);
+        
+        // Add slide
+        addSlideToPresentation(slideData, index);
+    });
+    
+    overlay.classList.remove('hidden');
+    document.addEventListener('keydown', handlePresentationKeys);
+    updatePresentationCounter();
+    updatePresentationButtons();
+}
 document.getElementById('prev-btn').addEventListener('click', () => navigatePage(-1));
 document.getElementById('next-btn').addEventListener('click', () => navigatePage(1));
 document.getElementById('save-btn').addEventListener('click', saveSlides);
@@ -170,18 +1801,20 @@ function addSlideToPresentation(slideData, index) {
                     <div class="slide-image-viewer" id="viewer-${index}">
                         <div class="slide-image-generating">
                             <div class="spinner"></div>
-                            <p>Generating image...</p>
+                            <p>Generating dual-style images...</p>
                         </div>
                     </div>
                     <div class="slide-image-controls">
-                        <button onclick="zoomImage(${index}, 1.2)">🔍 Zoom In</button>
-                        <button onclick="zoomImage(${index}, 0.8)">🔎 Zoom Out</button>
-                        <button onclick="resetImage(${index})">↺ Reset</button>
-                        <button onclick="regenerateImage(${index})" class="btn-regenerate">🔄 Regenerate</button>
+                        <button onclick="toggleDisplayStyle()" class="style-toggle-btn btn-style-toggle">🎨 ${formatStyleName(dualStyleConfig.primary)}</button>
+                        <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
+                        <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
+                        <button onclick="resetImage(${index})">↺</button>
+                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                        <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
                     </div>
-                    <div class="slide-image-prompt">
-                        <strong>Image Prompt:</strong>
-                        ${escapeHtml(slideData.image_prompt.substring(0, 200))}...
+                    <div class="slide-image-prompt-editor">
+                        <label><strong>Image Prompt:</strong> <button onclick="generateNewPrompt(${index})" class="btn-generate-prompt" title="Generate a new prompt based on slide content">✨ Generate</button></label>
+                        <textarea id="prompt-editor-${index}" class="prompt-textarea">${escapeHtml(slideData.image_prompt || '')}</textarea>
                     </div>
                 </div>
             </div>
@@ -189,13 +1822,6 @@ function addSlideToPresentation(slideData, index) {
             <div class="slide-resizer" onmousedown="startResize(event)"></div>
             
             <div class="slide-right" id="slide-right-${index}">
-                <div class="text-balance-control">
-                    <label>Text Balance: <span id="balance-label-${index}">Main Points ↔ Full Text</span></label>
-                    <input type="range" min="0" max="100" value="75" class="text-balance-slider" 
-                           id="balance-slider-${index}" 
-                           oninput="adjustTextBalance(${index}, this.value)">
-                </div>
-                
                 ${slideData.main_points && slideData.main_points.length > 0 ? `
                     <div class="slide-main-points" id="main-points-${index}">
                         <ul>
@@ -203,11 +1829,6 @@ function addSlideToPresentation(slideData, index) {
                         </ul>
                     </div>
                 ` : ''}
-                
-                <div class="slide-text" id="full-text-${index}">
-                    <h3>Full Text</h3>
-                    ${formatContent(slideData.content)}
-                </div>
             </div>
         </div>
     `;
@@ -216,29 +1837,9 @@ function addSlideToPresentation(slideData, index) {
 }
 
 // Image generation queue - process one at a time but auto-start
+// Now uses dual-style generation by default
 function queueImageGeneration(index, prompt) {
-    imageQueue.push({ index, prompt });
-    processImageQueue();
-}
-
-async function processImageQueue() {
-    if (isGeneratingImage || imageQueue.length === 0) return;
-    
-    isGeneratingImage = true;
-    const { index, prompt } = imageQueue.shift();
-    
-    try {
-        await generateImageForSlide(index, prompt);
-    } catch (error) {
-        console.error(`Error generating image for slide ${index}:`, error);
-    }
-    
-    isGeneratingImage = false;
-    
-    // Process next in queue
-    if (imageQueue.length > 0) {
-        processImageQueue();
-    }
+    queueDualImageGeneration(index, prompt);
 }
 
 async function generateImageForSlide(index, prompt) {
@@ -327,6 +1928,7 @@ function maximizeImage(slideIndex, imageIndex) {
                 <button onclick="resetMaxImage(${slideIndex})">↺ Reset</button>
                 <button onclick="prevMaxImage(${slideIndex}, ${imageIndex})">◀ Prev</button>
                 <button onclick="nextMaxImage(${slideIndex}, ${imageIndex})">Next ▶</button>
+                <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱ Exit Slide Only' : '◳ Slide Only'}</button>
             </div>
         </div>
     `;
@@ -434,6 +2036,38 @@ function regenerateImage(index) {
     
     // Add to front of queue for immediate processing
     imageQueue.unshift({ index, prompt: page.image_prompt });
+    processImageQueue();
+}
+
+// Regenerate image using the editable prompt textarea
+function regenerateImageWithPrompt(index) {
+    if (index >= pages.length) return;
+    
+    // Get the edited prompt from the textarea
+    const promptTextarea = document.getElementById(`prompt-editor-${index}`);
+    const editedPrompt = promptTextarea ? promptTextarea.value.trim() : '';
+    
+    if (!editedPrompt) {
+        alert('Please enter an image prompt.');
+        return;
+    }
+    
+    // Update the stored prompt
+    pages[index].image_prompt = editedPrompt;
+    
+    const viewer = document.getElementById(`viewer-${index}`);
+    
+    if (viewer) {
+        viewer.innerHTML = `
+            <div class="slide-image-generating">
+                <div class="spinner"></div>
+                <p>Regenerating image...</p>
+            </div>
+        `;
+    }
+    
+    // Add to front of queue for immediate processing
+    imageQueue.unshift({ index, prompt: editedPrompt });
     processImageQueue();
 }
 
@@ -673,6 +2307,16 @@ function updateNavigationButtons() {
 
 function clearInput() {
     document.getElementById('text-input').value = '';
+    const outlineInput = document.getElementById('outline-input');
+    if (outlineInput) outlineInput.value = '';
+    const titleInput = document.getElementById('title-input');
+    if (titleInput) titleInput.value = '';
+    const discussionInput = document.getElementById('discussion-input');
+    if (discussionInput) discussionInput.value = '';
+    const quizInput = document.getElementById('quiz-input');
+    if (quizInput) quizInput.value = '';
+    const fileNameDisplay = document.getElementById('file-name-display');
+    if (fileNameDisplay) fileNameDisplay.textContent = '';
     document.getElementById('pages-container').classList.add('hidden');
     document.getElementById('error').classList.add('hidden');
     pages = [];
@@ -719,12 +2363,21 @@ function enterPresentationMode() {
         slide.className = `slide ${index === 0 ? 'active' : ''}`;
         slide.id = `slide-${index}`;
         
-        // Single image only
+        // Determine which image to show based on current display style
+        let displayImage = null;
+        if (currentDisplayStyle === 'primary' && page.primaryImageData) {
+            displayImage = page.primaryImageData;
+        } else if (currentDisplayStyle === 'secondary' && page.secondaryImageData) {
+            displayImage = page.secondaryImageData;
+        } else if (page.imageData) {
+            displayImage = page.imageData;
+        }
+        
         let imageContent = '';
-        if (page.imageData) {
+        if (displayImage) {
             imageContent = `
                 <div class="slide-image-viewer" id="viewer-${index}">
-                    <img src="${page.imageData}" alt="Generated illustration" class="slide-image" id="img-${index}">
+                    <img src="${displayImage}" alt="Generated illustration" class="slide-image" id="img-${index}">
                 </div>
             `;
         } else {
@@ -733,11 +2386,14 @@ function enterPresentationMode() {
                 <div class="slide-image-viewer" id="viewer-${index}">
                     <div class="slide-image-placeholder">
                         🎨 No image generated yet
-                        <button onclick="regenerateImage(${index})" class="btn btn-secondary">Generate Image</button>
+                        <button onclick="regenerateDualImages(${index})" class="btn btn-secondary">Generate Images</button>
                     </div>
                 </div>
             `;
         }
+        
+        // Check if this slide has dual images
+        const hasDual = page.primaryImageData && page.secondaryImageData;
         
         slide.innerHTML = `
             <h2 class="slide-title">${escapeHtml(page.title)}</h2>
@@ -747,14 +2403,16 @@ function enterPresentationMode() {
                     <div class="slide-image-container">
                         ${imageContent}
                         <div class="slide-image-controls">
-                            <button onclick="zoomImage(${index}, 1.2)">🔍 Zoom In</button>
-                            <button onclick="zoomImage(${index}, 0.8)">🔎 Zoom Out</button>
-                            <button onclick="resetImage(${index})">↺ Reset</button>
-                            <button onclick="regenerateImage(${index})" class="btn-regenerate">🔄 Regenerate</button>
+                            <button onclick="toggleDisplayStyle()" class="style-toggle-btn btn-style-toggle" ${!hasDual ? 'disabled title="Only one style available"' : ''}>🎨 ${formatStyleName(currentDisplayStyle === 'primary' ? dualStyleConfig.primary : dualStyleConfig.secondary)}</button>
+                            <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
+                            <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
+                            <button onclick="resetImage(${index})">↺</button>
+                            <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                            <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
                         </div>
-                        <div class="slide-image-prompt">
-                            <strong>Image Prompt:</strong>
-                            ${escapeHtml(page.image_prompt ? page.image_prompt.substring(0, 200) : '')}...
+                        <div class="slide-image-prompt-editor">
+                            <label><strong>Image Prompt:</strong> <button onclick="generateNewPrompt(${index})" class="btn-generate-prompt" title="Generate a new prompt based on slide content">✨ Generate</button></label>
+                            <textarea id="prompt-editor-${index}" class="prompt-textarea">${escapeHtml(page.image_prompt || '')}</textarea>
                         </div>
                     </div>
                 </div>
@@ -762,13 +2420,6 @@ function enterPresentationMode() {
                 <div class="slide-resizer" onmousedown="startResize(event)"></div>
                 
                 <div class="slide-right" id="slide-right-${index}">
-                    <div class="text-balance-control">
-                        <label>Text Balance: <span id="balance-label-${index}">Main Points ↔ Full Text</span></label>
-                        <input type="range" min="0" max="100" value="75" class="text-balance-slider" 
-                               id="balance-slider-${index}" 
-                               oninput="adjustTextBalance(${index}, this.value)">
-                    </div>
-                    
                     ${page.main_points && page.main_points.length > 0 ? `
                         <div class="slide-main-points" id="main-points-${index}">
                             <ul>
@@ -776,20 +2427,16 @@ function enterPresentationMode() {
                             </ul>
                         </div>
                     ` : ''}
-                    
-                    <div class="slide-text" id="full-text-${index}">
-                        <h3>Full Text</h3>
-                        ${formatContent(page.content)}
-                    </div>
                 </div>
         `;
         
         content.appendChild(slide);
     });
-    
+
     presentationPageIndex = 0;
     updatePresentationCounter();
     updatePresentationButtons();
+    updateStyleToggleButton();
     overlay.classList.remove('hidden');
     
     // Build table of contents
@@ -806,17 +2453,77 @@ function buildTOC() {
     const tocList = document.getElementById('toc-list');
     tocList.innerHTML = '';
     
+    // Track topic numbering for hierarchical TOC
+    let topicNumber = 0;
+    const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+    let currentTopic = '';
+    
     pages.forEach((page, index) => {
         const tocItem = document.createElement('div');
-        tocItem.className = `toc-item ${index === 0 ? 'active' : ''}`;
         tocItem.id = `toc-item-${index}`;
-        tocItem.innerHTML = `
-            <span class="toc-item-number">${index + 1}.</span>
-            <span class="toc-item-title">${escapeHtml(page.title)}</span>
-        `;
         tocItem.onclick = () => jumpToSlide(index);
+        
+        let tocLabel = '';
+        let tocClass = 'toc-item';
+        
+        // Determine type based on slide_type or infer from title
+        const slideType = page.slide_type || inferSlideType(page, index);
+        
+        switch(slideType) {
+            case 'intro':
+                tocLabel = `<span class="toc-icon">📖</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-intro';
+                break;
+                
+            case 'topic_overview':
+                topicNumber++;
+                currentTopic = page.topic || page.title;
+                const numeral = romanNumerals[topicNumber - 1] || topicNumber;
+                tocLabel = `<span class="toc-numeral">${numeral}.</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-topic';
+                break;
+                
+            case 'subtopic':
+                tocLabel = `<span class="toc-bullet">•</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-subtopic';
+                break;
+                
+            case 'summary':
+                tocLabel = `<span class="toc-icon">📝</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-summary';
+                break;
+                
+            case 'discussion':
+                tocLabel = `<span class="toc-icon">💭</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-discussion';
+                break;
+                
+            case 'quiz':
+                tocLabel = `<span class="toc-icon">✏️</span> ${escapeHtml(page.title)}`;
+                tocClass += ' toc-quiz';
+                break;
+                
+            default:
+                // Fallback for old slides without slide_type
+                tocLabel = `<span class="toc-item-number">${index + 1}.</span> ${escapeHtml(page.title)}`;
+        }
+        
+        if (index === 0) tocClass += ' active';
+        
+        tocItem.className = tocClass;
+        tocItem.innerHTML = `<span class="toc-item-title">${tocLabel}</span>`;
         tocList.appendChild(tocItem);
     });
+}
+
+// Infer slide type for older slides that don't have slide_type
+function inferSlideType(page, index) {
+    const title = (page.title || '').toLowerCase();
+    if (index === 0 || title.includes('intro') || title.includes('chapter')) return 'intro';
+    if (title.includes('summary') || title.includes('conclusion')) return 'summary';
+    if (title.includes('discussion') || title.includes('thought')) return 'discussion';
+    if (title.includes('quiz') || title.includes('test')) return 'quiz';
+    return null; // Unknown type
 }
 
 function jumpToSlide(index) {
@@ -958,6 +2665,10 @@ function exitPresentationMode() {
     const overlay = document.getElementById('presentation-overlay');
     overlay.classList.add('hidden');
     
+    // Reset slide-only mode
+    slideOnlyMode = false;
+    overlay.classList.remove('slide-only-mode');
+    
     // Exit fullscreen if active
     if (document.fullscreenElement) {
         document.exitFullscreen();
@@ -1006,12 +2717,17 @@ function updateTOCActive() {
 
 function updatePresentationCounter() {
     const counter = document.getElementById('present-counter');
+    const slideOnlyCounter = document.getElementById('slide-only-counter');
+    
     if (isProcessing) {
         counter.textContent = `Processing... ${pages.length} slides ready`;
+        if (slideOnlyCounter) slideOnlyCounter.textContent = `${pages.length} slides`;
     } else if (pages.length > 0) {
         counter.textContent = `Slide ${presentationPageIndex + 1} of ${pages.length}`;
+        if (slideOnlyCounter) slideOnlyCounter.textContent = `${presentationPageIndex + 1} / ${pages.length}`;
     } else {
         counter.textContent = 'Loading...';
+        if (slideOnlyCounter) slideOnlyCounter.textContent = '...';
     }
 }
 
@@ -1032,18 +2748,50 @@ function toggleFullscreen() {
     }
 }
 
+function toggleSlideOnlyMode() {
+    slideOnlyMode = !slideOnlyMode;
+    const overlay = document.getElementById('presentation-overlay');
+    
+    if (slideOnlyMode) {
+        overlay.classList.add('slide-only-mode');
+        // Also enter fullscreen if not already
+        if (!document.fullscreenElement) {
+            overlay.requestFullscreen().catch(err => {
+                console.error('Error entering fullscreen:', err);
+            });
+        }
+    } else {
+        overlay.classList.remove('slide-only-mode');
+    }
+    
+    // Update all button labels
+    updateSlideOnlyButtons();
+}
+
+function updateSlideOnlyButtons() {
+    const buttons = document.querySelectorAll('.btn-slide-only');
+    buttons.forEach(btn => {
+        btn.textContent = slideOnlyMode ? '◱ Exit Slide Only' : '◳ Slide Only';
+    });
+}
+
 function handlePresentationKeys(e) {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+    // Only allow PageUp, PageDown, and Escape to avoid interference with typing
+    if (e.key === 'PageUp') {
         e.preventDefault();
         navigateSlide(-1);
-    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+    } else if (e.key === 'PageDown') {
         e.preventDefault();
         navigateSlide(1);
     } else if (e.key === 'Escape') {
-        exitPresentationMode();
-    } else if (e.key === 'f' || e.key === 'F') {
-        toggleFullscreen();
+        if (slideOnlyMode) {
+            toggleSlideOnlyMode(); // Exit slide-only mode first
+        } else {
+            exitPresentationMode();
+        }
     }
+    // Removed: 'f'/'F' for fullscreen and 's'/'S' for slide-only mode
+    // to allow typing in the window without keyboard shortcut interference
 }
 
 function saveSlides() {
@@ -1052,7 +2800,7 @@ function saveSlides() {
         return;
     }
     
-    // Collect all generated images
+    // Collect all generated images including dual-style
     const slidesData = pages.map((page, index) => {
         return {
             id: page.id,
@@ -1061,13 +2809,22 @@ function saveSlides() {
             main_points: page.main_points,
             image_prompt: page.image_prompt,
             bracketed_terms: page.bracketed_terms,
-            imageData: page.imageData || null
+            // Dual-style image data
+            primaryImageData: page.primaryImageData || null,
+            secondaryImageData: page.secondaryImageData || null,
+            primaryStyle: page.primaryStyle || dualStyleConfig.primary,
+            secondaryStyle: page.secondaryStyle || dualStyleConfig.secondary,
+            // Backwards compatibility
+            imageData: page.imageData || page.primaryImageData || null,
+            slide_type: page.slide_type || null,
+            topic: page.topic || null
         };
     });
     
     const saveData = {
-        version: '2.0',  // Updated version for new format
+        version: '3.0',  // Updated version for dual-style support
         timestamp: new Date().toISOString(),
+        dualStyleConfig: dualStyleConfig,
         slides: slidesData
     };
     
@@ -1100,13 +2857,27 @@ function loadSlidesFromFile(event) {
                 throw new Error('Invalid slides file format');
             }
             
+            // Load dual-style config if present
+            if (data.dualStyleConfig) {
+                dualStyleConfig = data.dualStyleConfig;
+                updateStyleToggleButton();
+            }
+            
             // Load the slides
             pages = data.slides;
+            
+            // Ensure backwards compatibility - if no dual images, use imageData
+            pages.forEach(page => {
+                if (!page.primaryImageData && page.imageData) {
+                    page.primaryImageData = page.imageData;
+                }
+            });
             
             // Display the pages
             displayPages();
             
-            alert(`Loaded ${pages.length} slides successfully!`);
+            const dualCount = pages.filter(p => p.primaryImageData && p.secondaryImageData).length;
+            alert(`Loaded ${pages.length} slides successfully! (${dualCount} with dual-style images)`);
             
             // Clear the file input so the same file can be loaded again
             event.target.value = '';
@@ -1209,7 +2980,7 @@ async function exportAsHTML() {
     jsContent = jsContent.replace(/^let imageStates = \{\};?\s*/m, '');
     
     // Remove event listeners that reference non-existent elements in exported version
-    jsContent = jsContent.replace(/document\.getElementById\('process-btn'\).*?processTextProgressive.*?\);?/g, '');
+    jsContent = jsContent.replace(/document\.getElementById\('process-btn'\).*?processText.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('clear-btn'\).*?clearInput.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('load-file-input'\).*?loadSlidesFromFile.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('export-html-main-btn'\).*?exportAsHTML.*?\);?/g, '');
@@ -1294,6 +3065,15 @@ ${cssContent}
                 </div>
                 
                 <div id="presentation-content" class="presentation-content"></div>
+            </div>
+            
+            <!-- Slide-only mode floating navigation (appears on hover) -->
+            <div class="slide-only-nav" id="slide-only-nav">
+                <button onclick="navigateSlide(-1)">← Prev</button>
+                <span class="nav-counter" id="slide-only-counter">1 / ${pages.length}</span>
+                <button onclick="navigateSlide(1)">Next →</button>
+                <button onclick="toggleSlideOnlyMode()">✕ Exit Slide Only</button>
+                <span class="nav-hint">(PgUp/PgDown to navigate, Esc to exit)</span>
             </div>
         </div>
 

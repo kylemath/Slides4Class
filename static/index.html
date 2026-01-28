@@ -15,16 +15,169 @@
 
         <div class="input-section">
             <div class="input-container">
-                <label for="text-input">Paste your lecture text here:</label>
+                <!-- Mode Toggle -->
+                <div class="mode-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="outline-mode-toggle" checked>
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Outline Mode</span>
+                    </label>
+                    <span class="mode-hint" id="mode-hint">Paste chapter outline + full text for structured slides</span>
+                </div>
+
+                <!-- Image Style Selector -->
+                <div class="style-selector-section">
+                    <!-- Dual Style Mode Toggle -->
+                    <div class="dual-style-config">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="dual-style-toggle" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">Dual-Style Mode</span>
+                        </label>
+                        <span class="dual-style-hint">Generate both styles for each slide (toggle to view either)</span>
+                    </div>
+                    
+                    <!-- Primary & Secondary Style Selectors -->
+                    <div class="style-selectors-row">
+                        <div class="style-selector-group">
+                            <label>📘 Primary Style (Print/PDF):</label>
+                            <select id="primary-style-select">
+                                <option value="neuroscience" selected>Neuroscience (Whiteboard)</option>
+                                <option value="medical">Medical Textbook</option>
+                                <option value="whiteboard">Simple Whiteboard</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="no-labels">No Labels</option>
+                                <option value="reboot">Reboot (3D Photorealistic)</option>
+                            </select>
+                            <div class="style-mini-desc" id="primary-style-desc">Whiteboard-style diagrams</div>
+                        </div>
+                        
+                        <div class="style-selector-group" id="secondary-style-group">
+                            <label>📗 Secondary Style (Alternative):</label>
+                            <select id="secondary-style-select">
+                                <option value="neuroscience">Neuroscience (Whiteboard)</option>
+                                <option value="medical">Medical Textbook</option>
+                                <option value="whiteboard">Simple Whiteboard</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="no-labels">No Labels</option>
+                                <option value="reboot" selected>Reboot (3D Photorealistic)</option>
+                            </select>
+                            <div class="style-mini-desc" id="secondary-style-desc">3D photorealistic renders</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Style Editor Toggle -->
+                    <div class="style-editor-toggle-row">
+                        <button id="toggle-style-editor" class="btn btn-small btn-secondary">Edit Style Prompts</button>
+                    </div>
+                    
+                    <!-- Collapsible Style Editor -->
+                    <div id="style-editor-panel" class="style-editor-panel hidden">
+                        <div class="style-editor-content">
+                            <!-- Tabs for Primary/Secondary -->
+                            <div class="style-editor-tabs">
+                                <button class="style-tab active" data-tab="primary" onclick="switchStyleTab('primary')">📘 Primary Prompt</button>
+                                <button class="style-tab" data-tab="secondary" onclick="switchStyleTab('secondary')">📗 Secondary Prompt</button>
+                            </div>
+                            
+                            <div id="primary-prompt-tab" class="style-tab-content active">
+                                <label>Primary Style Prompt (<span id="primary-style-name">neuroscience</span>):</label>
+                                <textarea id="primary-prompt-editor" rows="10" placeholder="Primary style prompt..."></textarea>
+                            </div>
+                            
+                            <div id="secondary-prompt-tab" class="style-tab-content hidden">
+                                <label>Secondary Style Prompt (<span id="secondary-style-name">reboot</span>):</label>
+                                <textarea id="secondary-prompt-editor" rows="10" placeholder="Secondary style prompt..."></textarea>
+                            </div>
+                            
+                            <div class="style-editor-actions">
+                                <div class="style-save-group">
+                                    <input type="text" id="new-style-name" placeholder="my-custom-style" class="style-name-input">
+                                    <input type="text" id="new-style-description" placeholder="Description (optional)" class="style-desc-input">
+                                    <button id="save-style-btn" class="btn btn-small btn-save">💾 Save as New Style</button>
+                                </div>
+                                <div class="style-action-buttons">
+                                    <button id="apply-style-btn" class="btn btn-small btn-primary">Apply Changes</button>
+                                    <button id="reset-style-btn" class="btn btn-small btn-secondary">Reset to Default</button>
+                                    <button id="delete-style-btn" class="btn btn-small btn-danger hidden">🗑️ Delete Style</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Outline Input (shown in outline mode) -->
+                <div id="outline-input-section" class="outline-input-section">
+                    <!-- HTML File Upload -->
+                    <div class="file-upload-section">
+                        <label for="html-file-input" class="btn btn-upload">Upload Chapter HTML</label>
+                        <input type="file" id="html-file-input" accept=".html,.htm" style="display: none;">
+                        <span id="file-name-display" class="file-name-display"></span>
+                    </div>
+                    
+                    <div class="divider-or"><span>or paste manually</span></div>
+
+                    <!-- Chapter Title -->
+                    <label for="title-input">Chapter Title:</label>
+                    <input 
+                        type="text" 
+                        id="title-input" 
+                        placeholder="e.g., Macroscopic Organization of the Nervous System"
+                        class="title-input"
+                    >
+
+                    <label for="outline-input">Chapter Outline:</label>
+                    <textarea 
+                        id="outline-input" 
+                        placeholder="Paste your chapter outline here. Any format works:
+
+I. Opening: Phineas Gage's Revelation (12 min)
+  • The tamping iron that revealed functional localization
+  • From phrenology to modern brain mapping
+
+II. The Grand Division: Central vs Peripheral (15 min)
+  • CNS: The protected processor
+  • PNS: The body's internet"
+                        rows="10"
+                    ></textarea>
+                </div>
+
+                <label for="text-input">
+                    <span id="text-input-label">Full Chapter Text:</span>
+                </label>
                 <textarea 
                     id="text-input" 
                     placeholder="Paste your textbook content, lecture notes, or any educational text here. The system will automatically organize it into pages with main points and generate illustrative images."
-                    rows="15"
+                    rows="12"
                 ></textarea>
+
+                <!-- Discussion Questions Section -->
+                <div class="supplementary-section">
+                    <label for="discussion-input">
+                        <span class="section-icon">💭</span> Discussion Questions (optional):
+                    </label>
+                    <textarea 
+                        id="discussion-input" 
+                        placeholder="Paste thought questions for discussion here. These will generate a dedicated discussion slide."
+                        rows="5"
+                    ></textarea>
+                </div>
+
+                <!-- Fill-in-the-Blank Questions Section -->
+                <div class="supplementary-section">
+                    <label for="quiz-input">
+                        <span class="section-icon">📝</span> Fill-in-the-Blank Questions (optional):
+                    </label>
+                    <textarea 
+                        id="quiz-input" 
+                        placeholder="Paste fill-in-the-blank questions here (with blanks shown as _______). These will generate a visual quiz infographic without answers."
+                        rows="5"
+                    ></textarea>
+                </div>
                 <div class="button-group">
                     <button id="process-btn" class="btn btn-primary">Generate Pages</button>
                     <button id="clear-btn" class="btn btn-secondary">Clear</button>
-                    <label for="load-file-input" class="btn btn-load">📂 Load Saved Slides</label>
+                    <label for="load-file-input" class="btn btn-load">Load Saved Slides</label>
                     <input type="file" id="load-file-input" accept=".json" style="display: none;">
                 </div>
             </div>
@@ -67,6 +220,7 @@
                     <button id="present-prev-btn" class="btn btn-present-nav">← Prev</button>
                     <span id="present-counter">Slide 1 of 1</span>
                     <button id="present-next-btn" class="btn btn-present-nav">Next →</button>
+                    <button id="global-style-toggle" class="btn btn-style-toggle style-toggle-btn" onclick="toggleDisplayStyle()">🎨 Neuroscience</button>
                     <button id="print-btn" class="btn btn-save">🖨️ Print/PDF</button>
                     <button id="present-save-btn" class="btn btn-save">💾 Save</button>
                     <button id="export-html-btn" class="btn btn-save">📄 Export HTML</button>
@@ -75,6 +229,15 @@
                 </div>
                 
                 <div id="presentation-content" class="presentation-content"></div>
+            </div>
+            
+            <!-- Slide-only mode floating navigation (appears on hover) -->
+            <div class="slide-only-nav" id="slide-only-nav">
+                <button onclick="navigateSlide(-1)">← Prev</button>
+                <span class="nav-counter" id="slide-only-counter">1 / 1</span>
+                <button onclick="navigateSlide(1)">Next →</button>
+                <button onclick="toggleSlideOnlyMode()">✕ Exit Slide Only</button>
+                <span class="nav-hint">(PgUp/PgDown to navigate, Esc to exit)</span>
             </div>
         </div>
 
