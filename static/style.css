@@ -824,6 +824,16 @@ textarea:focus {
     transform: translateY(-2px);
 }
 
+.btn-continue {
+    background: #fd7e14;
+    color: white;
+}
+
+.btn-continue:hover {
+    background: #e96b02;
+    transform: translateY(-2px);
+}
+
 /* Table of Contents */
 .toc-toggle-btn {
     display: none; /* Hide toggle button - TOC is always visible */
@@ -1319,6 +1329,51 @@ textarea:focus {
 
 .btn-regenerate:hover {
     background: #e0a800 !important;
+}
+
+/* Import Image Button */
+.btn-import {
+    background: #17a2b8 !important;
+    color: white !important;
+}
+
+.btn-import:hover {
+    background: #138496 !important;
+}
+
+/* Editable Slide Title */
+.slide-title {
+    cursor: pointer;
+    transition: background-color 0.2s;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: -4px -8px;
+}
+
+.slide-title:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.slide-title.editing {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+.slide-title-input {
+    font-size: inherit;
+    font-weight: inherit;
+    font-family: inherit;
+    width: 100%;
+    padding: 4px 8px;
+    border: 2px solid #007bff;
+    border-radius: 4px;
+    outline: none;
+    background: white;
+}
+
+.slide-title-input:focus {
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
 }
 
 /* Generate Prompt Button */

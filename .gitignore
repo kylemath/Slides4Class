@@ -35,3 +35,10 @@ instance/
 # Allow image style config to be customized
 # (remove this line if you want to track changes to image_style_config.py)
 # image_style_config.py
+
+# Note: Exported HTML files are now small (~50KB wrappers)
+# You can choose to commit them or not. JSON has all the data.
+# Uncomment these lines if you want to ignore HTML slide files:
+# *Slides.html
+# Psych275Pages/*Slides.html
+Psych275Pages/

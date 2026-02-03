@@ -5,7 +5,6 @@ import re
 import google.generativeai as genai
 from typing import List, Dict
 import json
-
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
@@ -23,6 +22,7 @@ if GEMINI_API_KEY:
     print("✓ Gemini API key loaded successfully")
 else:
     print("⚠ Warning: GEMINI_API_KEY not found. Image prompt generation will work, but some features may be limited.")
+print(f"API Key loaded: {GEMINI_API_KEY[:10]}..." if GEMINI_API_KEY else "No API key found")
 
 # Configure Image Generation (Nano Banana via Gemini)
 IMAGE_GENERATION_ENABLED = False
@@ -241,7 +241,7 @@ Generate a JSON response with:
 - "title": A clear 2-4 word title for this subtopic
 - "main_points": 4-6 key facts and concepts about this subtopic (simple grade 9 language, active voice, avoid negatives)
 - "content": A 2-3 paragraph summary of the most important information about this subtopic
-- "image_prompt": A detailed prompt for an educational whiteboard-style illustration showing key concepts
+- "image_prompt": A detailed description of what to illustrate - describe the key anatomical structures, concepts, or processes to show (DO NOT specify artistic style - just describe the subject matter)
 
 Output ONLY valid JSON:
 {{"title": "...", "main_points": ["...", "..."], "content": "...", "image_prompt": "..."}}"""
@@ -261,7 +261,7 @@ Output ONLY valid JSON:
             'title': result.get('title', subtopic),
             'main_points': result.get('main_points', []),
             'content': result.get('content', ''),
-            'image_prompt': result.get('image_prompt', f'Educational whiteboard illustration about {subtopic}'),
+            'image_prompt': result.get('image_prompt', f'Illustration showing key concepts of {subtopic}'),
             'topic': topic,
             'subtopic': subtopic
         }
@@ -273,7 +273,7 @@ Output ONLY valid JSON:
             'title': subtopic,
             'main_points': [f'Key information about {subtopic}'],
             'content': '',
-            'image_prompt': f'Educational whiteboard illustration about {subtopic}',
+            'image_prompt': f'Illustration showing key concepts of {subtopic}',
             'topic': topic,
             'subtopic': subtopic
         }
@@ -343,9 +343,9 @@ QUIZ QUESTIONS:
 Generate a JSON response with:
 - "title": "Quiz Yourself" or "Test Your Knowledge" or similar
 - "main_points": The quiz questions reformatted as clear bullet points (keep the blanks as _______, DO NOT fill in the answers)
-- "image_prompt": Create a detailed prompt for a COLLAGE-STYLE whiteboard infographic that shows visual hints/clues for each answer WITHOUT revealing the actual answer. For each blank, include a small illustration or icon that hints at the concept. Make it educational and engaging, like a visual study guide. The style should be clean whiteboard drawings with labeled diagrams.
+- "image_prompt": Describe what visual hints/clues to show for each quiz answer WITHOUT revealing the actual answer. For each blank, describe a small illustration or icon that hints at the concept. Describe the subject matter only - DO NOT specify artistic style.
 
-Example image prompt style: "Whiteboard infographic collage with multiple small panels: [panel 1 description hinting at answer 1], [panel 2 description hinting at answer 2], etc. Clean educational illustration style with labels and arrows."
+Example: "Show visual hints arranged in panels: [panel 1: icon/image hinting at answer 1], [panel 2: icon/image hinting at answer 2], etc. Include labels pointing to key visual elements."
 
 Output ONLY valid JSON:
 {{"title": "...", "main_points": ["...", "..."], "image_prompt": "..."}}"""
@@ -365,7 +365,7 @@ Output ONLY valid JSON:
             'title': result.get('title', 'Quiz Yourself'),
             'main_points': result.get('main_points', []),
             'content': quiz_text,
-            'image_prompt': result.get('image_prompt', 'Educational whiteboard infographic with visual hints for quiz questions')
+            'image_prompt': result.get('image_prompt', 'Visual hints and icons representing the quiz question answers without revealing them')
         }
         
     except Exception as e:
@@ -377,7 +377,7 @@ Output ONLY valid JSON:
             'title': 'Quiz Yourself',
             'main_points': questions[:7] if questions else ['Test your knowledge with these questions'],
             'content': quiz_text,
-            'image_prompt': 'Educational whiteboard infographic with visual hints and clues for fill-in-the-blank quiz questions'
+            'image_prompt': 'Visual hints and icons representing the quiz question answers without revealing them'
         }
 
 
@@ -911,14 +911,20 @@ INSTRUCTIONS:
    - A SHORT 2-3 word title (like a chapter heading)
    - 3-5 main points in simple grade 9 language (avoid "didn't/wasn't" - use positive statements)
    - The full paragraph text (cleaned up, no [bracketed links])
-   - A simple image generation prompt describing what to illustrate
+   - An image content description (describe WHAT to show, not the artistic style)
 
 4. For [bracketed terms] in text:
    - Remove navigation links like [Click here], [See Chapter X], [http://...]
    - Keep visual terms like [trilobite eyes], [neural circuits] and include them in image prompts
    - Remove ALL brackets from the displayed content
 
-5. Output ONLY valid JSON in this exact format:
+5. IMAGE PROMPT RULES:
+   - Describe the subject matter only (anatomical structures, concepts, processes)
+   - DO NOT specify artistic style (no "whiteboard", "diagram", "cartoon", "3D render", etc.)
+   - Include specific structures and labels to show
+   - Be scientifically accurate
+
+6. Output ONLY valid JSON in this exact format:
 {{
   "slides": [
     {{
@@ -929,7 +935,7 @@ INSTRUCTIONS:
         "Second clear point",
         "Third concrete fact"
       ],
-      "image_prompt": "Complete image generation prompt combining style + content description",
+      "image_prompt": "Description of what to illustrate - structures, concepts, labels (NO style)",
       "visual_terms": ["term1", "term2"]
     }}
   ]
@@ -1287,34 +1293,34 @@ def generate_image_prompt_endpoint():
         
         context = '\n'.join(context_parts) if context_parts else "Educational slide"
         
-        # Different prompt strategies based on slide type
+        # Different prompt strategies based on slide type - describe WHAT to show, not HOW to style it
         if slide_type == 'intro':
-            style_guidance = "Create an engaging chapter introduction visual that draws students in and previews key themes."
+            content_guidance = "Describe a visual that introduces the chapter themes and draws students in."
         elif slide_type == 'summary':
-            style_guidance = "Create a visual that ties together the main concepts covered, showing their interconnections."
+            content_guidance = "Describe a visual showing the main concepts and their interconnections."
         elif slide_type == 'quiz':
-            style_guidance = "Create a visual infographic with hints and clues for the quiz questions without revealing answers."
+            content_guidance = "Describe visual hints and clues for the quiz questions without revealing answers."
         elif slide_type == 'discussion':
-            style_guidance = "Create a thought-provoking image showing people engaged in discussion or debate about the topic."
+            content_guidance = "Describe people engaged in discussion or debate about the topic."
         else:
-            style_guidance = "Create an educational whiteboard-style illustration that clearly explains the concept."
+            content_guidance = "Describe the key anatomical structures, concepts, or processes to illustrate."
         
         prompt = f"""You are an expert at creating image generation prompts for educational slides.
 
 SLIDE CONTEXT:
 {context}
 
-STYLE GUIDANCE:
-{style_guidance}
+CONTENT GUIDANCE:
+{content_guidance}
 
-Generate a detailed, specific image prompt (3-5 sentences) that will create an excellent educational illustration for this slide. The prompt should:
-1. Be visually specific - describe exactly what should be shown
-2. Include key concepts, diagrams, or visual metaphors that explain the topic
-3. Specify the style (whiteboard diagram, infographic, anatomical illustration, etc.)
-4. Mention any text labels that should appear in the image
-5. Be suitable for a university-level neuroscience/psychology course
+Generate a detailed, specific image prompt (3-5 sentences) describing WHAT to illustrate. The prompt should:
+1. Be visually specific - describe exactly what structures, concepts, or scenes should be shown
+2. Include key anatomical structures, diagrams, or visual elements that explain the topic
+3. Mention any text labels that should appear in the image (e.g., structure names)
+4. Be scientifically/anatomically accurate for university-level education
+5. DO NOT specify artistic style (no "whiteboard", "cartoon", "3D render", etc.) - just describe the subject matter
 
-Image Generation Prompt:"""
+Image Content Description:"""
         
         response = model.generate_content(prompt)
         generated_prompt = response.text.strip()

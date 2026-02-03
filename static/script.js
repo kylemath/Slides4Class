@@ -717,6 +717,9 @@ async function processImageQueue() {
     // Process next in queue
     if (imageQueue.length > 0) {
         processImageQueue();
+    } else {
+        // Update the continue button when queue is empty
+        updateContinueButton();
     }
 }
 
@@ -1487,7 +1490,7 @@ function updateSlideContent(index, slideData) {
     if (!slideElement) return;
     
     slideElement.innerHTML = `
-        <h2 class="slide-title">${escapeHtml(slideData.title)}</h2>
+        <h2 class="slide-title" onclick="editSlideTitle(${index})" title="Click to edit title">${escapeHtml(slideData.title)}</h2>
         
         <div class="slide-body">
             <div class="slide-left">
@@ -1503,7 +1506,8 @@ function updateSlideContent(index, slideData) {
                         <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
                         <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
                         <button onclick="resetImage(${index})">↺</button>
-                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate" title="Regenerate images">🔄</button>
+                        <button onclick="importImage(${index})" class="btn-import" title="Import your own image">📁</button>
                         <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
                     </div>
                     <div class="slide-image-prompt-editor">
@@ -1651,6 +1655,64 @@ document.getElementById('export-html-btn').addEventListener('click', exportAsHTM
 document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
 document.getElementById('print-btn').addEventListener('click', printSlides);
 document.getElementById('load-file-input').addEventListener('change', loadSlidesFromFile);
+document.getElementById('continue-gen-btn').addEventListener('click', continueImageGeneration);
+
+// Continue generating images for slides that don't have them yet
+function continueImageGeneration() {
+    if (pages.length === 0) {
+        alert('No slides loaded!');
+        return;
+    }
+    
+    // Find all slides without images
+    const slidesNeedingImages = [];
+    pages.forEach((page, index) => {
+        const hasImage = page.primaryImageData || page.secondaryImageData || page.imageData;
+        if (!hasImage && page.image_prompt) {
+            slidesNeedingImages.push({ index, prompt: page.image_prompt });
+        }
+    });
+    
+    if (slidesNeedingImages.length === 0) {
+        alert('All slides already have images!');
+        return;
+    }
+    
+    // Queue all slides for generation
+    slidesNeedingImages.forEach(item => {
+        if (dualStyleEnabled) {
+            imageQueue.push({ index: item.index, prompt: item.prompt, dual: true });
+        } else {
+            imageQueue.push({ index: item.index, prompt: item.prompt, dual: false });
+        }
+    });
+    
+    alert(`Queued ${slidesNeedingImages.length} slides for image generation. This will run in the background.`);
+    
+    // Start processing
+    processImageQueue();
+}
+
+// Check if there are slides needing images and show/hide the continue button
+function updateContinueButton() {
+    const btn = document.getElementById('continue-gen-btn');
+    if (!btn || pages.length === 0) {
+        if (btn) btn.classList.add('hidden');
+        return;
+    }
+    
+    const slidesNeedingImages = pages.filter(page => {
+        const hasImage = page.primaryImageData || page.secondaryImageData || page.imageData;
+        return !hasImage && page.image_prompt;
+    });
+    
+    if (slidesNeedingImages.length > 0) {
+        btn.classList.remove('hidden');
+        btn.textContent = `🔄 Continue Image Generation (${slidesNeedingImages.length} remaining)`;
+    } else {
+        btn.classList.add('hidden');
+    }
+}
 
 // Progressive processing - process slides one by one and show immediately
 async function processTextProgressive() {
@@ -1793,7 +1855,7 @@ function addSlideToPresentation(slideData, index) {
     slide.id = `slide-${index}`;
     
     slide.innerHTML = `
-        <h2 class="slide-title">${escapeHtml(slideData.title)}</h2>
+        <h2 class="slide-title" onclick="editSlideTitle(${index})" title="Click to edit title">${escapeHtml(slideData.title)}</h2>
         
         <div class="slide-body">
             <div class="slide-left">
@@ -1809,7 +1871,8 @@ function addSlideToPresentation(slideData, index) {
                         <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
                         <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
                         <button onclick="resetImage(${index})">↺</button>
-                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                        <button onclick="regenerateDualImages(${index})" class="btn-regenerate" title="Regenerate images">🔄</button>
+                        <button onclick="importImage(${index})" class="btn-import" title="Import your own image">📁</button>
                         <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
                     </div>
                     <div class="slide-image-prompt-editor">
@@ -2037,6 +2100,204 @@ function regenerateImage(index) {
     // Add to front of queue for immediate processing
     imageQueue.unshift({ index, prompt: page.image_prompt });
     processImageQueue();
+}
+
+// ============================================
+// Title Editing Functions
+// ============================================
+
+function makeSlideTitle(index, title) {
+    // Return HTML for an editable title
+    return `<h2 class="slide-title" onclick="editSlideTitle(${index})" title="Click to edit title">${escapeHtml(title)}</h2>`;
+}
+
+function editSlideTitle(index) {
+    if (index >= pages.length) return;
+    
+    const slide = document.getElementById(`slide-${index}`);
+    if (!slide) return;
+    
+    const titleEl = slide.querySelector('.slide-title');
+    if (!titleEl || titleEl.classList.contains('editing')) return;
+    
+    const currentTitle = pages[index].title || '';
+    
+    // Replace title with input field
+    titleEl.classList.add('editing');
+    titleEl.innerHTML = `
+        <input type="text" class="slide-title-input" value="${escapeHtml(currentTitle)}" 
+               onblur="saveSlideTitle(${index})" 
+               onkeydown="handleTitleKeydown(event, ${index})"
+               id="title-input-${index}">
+    `;
+    
+    // Focus and select the input
+    const input = document.getElementById(`title-input-${index}`);
+    if (input) {
+        input.focus();
+        input.select();
+    }
+}
+
+function handleTitleKeydown(event, index) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        saveSlideTitle(index);
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelTitleEdit(index);
+    }
+}
+
+function saveSlideTitle(index) {
+    if (index >= pages.length) return;
+    
+    const input = document.getElementById(`title-input-${index}`);
+    if (!input) return;
+    
+    const newTitle = input.value.trim();
+    if (!newTitle) {
+        cancelTitleEdit(index);
+        return;
+    }
+    
+    // Update the pages array
+    pages[index].title = newTitle;
+    
+    // Update the slide title display
+    const slide = document.getElementById(`slide-${index}`);
+    if (slide) {
+        const titleEl = slide.querySelector('.slide-title');
+        if (titleEl) {
+            titleEl.classList.remove('editing');
+            titleEl.innerHTML = escapeHtml(newTitle);
+        }
+    }
+    
+    // Update the TOC
+    updateTOCTitle(index, newTitle);
+    
+    console.log(`✓ Title updated for slide ${index}: "${newTitle}"`);
+}
+
+function cancelTitleEdit(index) {
+    if (index >= pages.length) return;
+    
+    const slide = document.getElementById(`slide-${index}`);
+    if (!slide) return;
+    
+    const titleEl = slide.querySelector('.slide-title');
+    if (titleEl) {
+        titleEl.classList.remove('editing');
+        titleEl.innerHTML = escapeHtml(pages[index].title || '');
+    }
+}
+
+function updateTOCTitle(index, newTitle) {
+    const tocItem = document.getElementById(`toc-item-${index}`);
+    if (!tocItem) return;
+    
+    const titleSpan = tocItem.querySelector('.toc-item-title');
+    if (!titleSpan) return;
+    
+    // Preserve the icon/prefix but update the text
+    const page = pages[index];
+    const slideType = page.slide_type || inferSlideType(page, index);
+    
+    let tocLabel = '';
+    switch(slideType) {
+        case 'intro':
+            tocLabel = `<span class="toc-icon">📖</span> ${escapeHtml(newTitle)}`;
+            break;
+        case 'topic_overview':
+            // Find the roman numeral by counting topics before this index
+            let topicNum = 0;
+            for (let i = 0; i <= index; i++) {
+                if (pages[i]?.slide_type === 'topic_overview') topicNum++;
+            }
+            const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+            const numeral = romanNumerals[topicNum - 1] || topicNum;
+            tocLabel = `<span class="toc-numeral">${numeral}.</span> ${escapeHtml(newTitle)}`;
+            break;
+        case 'subtopic':
+            tocLabel = `<span class="toc-bullet">•</span> ${escapeHtml(newTitle)}`;
+            break;
+        case 'summary':
+            tocLabel = `<span class="toc-icon">📝</span> ${escapeHtml(newTitle)}`;
+            break;
+        case 'discussion':
+            tocLabel = `<span class="toc-icon">💭</span> ${escapeHtml(newTitle)}`;
+            break;
+        case 'quiz':
+            tocLabel = `<span class="toc-icon">✏️</span> ${escapeHtml(newTitle)}`;
+            break;
+        default:
+            tocLabel = escapeHtml(newTitle);
+    }
+    
+    titleSpan.innerHTML = tocLabel;
+}
+
+// ============================================
+// Image Import Functions
+// ============================================
+
+function importImage(index) {
+    // Create a hidden file input
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.style.display = 'none';
+    
+    fileInput.onchange = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            loadImageFile(file, index);
+        }
+        document.body.removeChild(fileInput);
+    };
+    
+    document.body.appendChild(fileInput);
+    fileInput.click();
+}
+
+function loadImageFile(file, index) {
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        
+        // Update the viewer
+        const viewer = document.getElementById(`viewer-${index}`);
+        if (viewer) {
+            viewer.innerHTML = `<img src="${dataUrl}" alt="Imported image" class="slide-image" id="img-${index}">`;
+            
+            // Initialize viewer controls
+            setTimeout(() => {
+                initializeImageViewer(index);
+                setTimeout(() => resetImage(index), 100);
+            }, 50);
+        }
+        
+        // Store in pages array based on current display style
+        if (pages[index]) {
+            if (currentDisplayStyle === 'primary') {
+                pages[index].primaryImageData = dataUrl;
+            } else {
+                pages[index].secondaryImageData = dataUrl;
+            }
+            // Also store as the generic imageData for compatibility
+            pages[index].imageData = dataUrl;
+        }
+        
+        console.log(`✓ Image imported for slide ${index} (${currentDisplayStyle} style)`);
+    };
+    
+    reader.onerror = () => {
+        alert('Error reading image file');
+    };
+    
+    reader.readAsDataURL(file);
 }
 
 // Regenerate image using the editable prompt textarea
@@ -2396,7 +2657,7 @@ function enterPresentationMode() {
         const hasDual = page.primaryImageData && page.secondaryImageData;
         
         slide.innerHTML = `
-            <h2 class="slide-title">${escapeHtml(page.title)}</h2>
+            <h2 class="slide-title" onclick="editSlideTitle(${index})" title="Click to edit title">${escapeHtml(page.title)}</h2>
             
             <div class="slide-body">
                 <div class="slide-left">
@@ -2407,7 +2668,8 @@ function enterPresentationMode() {
                             <button onclick="zoomImage(${index}, 1.2)">🔍+</button>
                             <button onclick="zoomImage(${index}, 0.8)">🔎-</button>
                             <button onclick="resetImage(${index})">↺</button>
-                            <button onclick="regenerateDualImages(${index})" class="btn-regenerate">🔄</button>
+                            <button onclick="regenerateDualImages(${index})" class="btn-regenerate" title="Regenerate images">🔄</button>
+                            <button onclick="importImage(${index})" class="btn-import" title="Import your own image">📁</button>
                             <button onclick="toggleSlideOnlyMode()" class="btn-slide-only">${slideOnlyMode ? '◱' : '◳'}</button>
                         </div>
                         <div class="slide-image-prompt-editor">
@@ -2437,6 +2699,7 @@ function enterPresentationMode() {
     updatePresentationCounter();
     updatePresentationButtons();
     updateStyleToggleButton();
+    updateContinueButton();
     overlay.classList.remove('hidden');
     
     // Build table of contents
@@ -2876,8 +3139,16 @@ function loadSlidesFromFile(event) {
             // Display the pages
             displayPages();
             
+            // Check if there are slides needing images
+            updateContinueButton();
+            
             const dualCount = pages.filter(p => p.primaryImageData && p.secondaryImageData).length;
-            alert(`Loaded ${pages.length} slides successfully! (${dualCount} with dual-style images)`);
+            const needingImages = pages.filter(p => !p.primaryImageData && !p.secondaryImageData && !p.imageData && p.image_prompt).length;
+            let msg = `Loaded ${pages.length} slides successfully! (${dualCount} with dual-style images)`;
+            if (needingImages > 0) {
+                msg += `\n\n${needingImages} slides still need images. Click "Continue Image Generation" to generate them.`;
+            }
+            alert(msg);
             
             // Clear the file input so the same file can be loaded again
             event.target.value = '';
@@ -3006,33 +3277,50 @@ function deduplicateImages(slidesArray) {
     return { deduplicatedPages, imageLookup };
 }
 
-// Export slides as standalone HTML file
+// Export slides as lightweight HTML wrapper that loads JSON
 async function exportAsHTML() {
     if (pages.length === 0) {
         alert('No slides to export!');
         return;
     }
     
-    // Deduplicate images to reduce file size
-    const { deduplicatedPages, imageLookup } = deduplicateImages(pages);
+    // Determine filename from first slide title
+    // Keep alphanumeric chars and ensure it ends with "Slides"
+    let baseFilename = pages[0]?.title.replace(/[^a-z0-9]/gi, '') || 'Chapter';
+    if (!baseFilename.toLowerCase().endsWith('slides')) {
+        baseFilename += 'Slides';
+    }
+    const jsonFilename = baseFilename + '.json';
+    const htmlFilename = baseFilename + '.html';
     
-    // Fetch current CSS and JS
+    // Save JSON file first (with all slide data)
+    const jsonBlob = new Blob([JSON.stringify(pages, null, 2)], { type: 'application/json' });
+    const jsonUrl = URL.createObjectURL(jsonBlob);
+    const jsonLink = document.createElement('a');
+    jsonLink.href = jsonUrl;
+    jsonLink.download = jsonFilename;
+    document.body.appendChild(jsonLink);
+    jsonLink.click();
+    document.body.removeChild(jsonLink);
+    URL.revokeObjectURL(jsonUrl);
+    
+    // Fetch current CSS
     const cssResponse = await fetch('style.css');
     const cssContent = await cssResponse.text();
     
+    // Fetch minimal JS (just the viewing/presentation logic, not the generation logic)
     const jsResponse = await fetch('script.js');
     let jsContent = await jsResponse.text();
     
-    // Remove the top-level variable declarations (we'll add them in the embedded section)
+    // Remove variable declarations that we'll redefine
     jsContent = jsContent.replace(/^let currentPageIndex = 0;?\s*/m, '');
     jsContent = jsContent.replace(/^let pages = \[\];?\s*/m, '');
     jsContent = jsContent.replace(/^let presentationPageIndex = 0;?\s*/m, '');
     jsContent = jsContent.replace(/^let isProcessing = false;?\s*/m, '');
     jsContent = jsContent.replace(/^let imageQueue = \[\];?\s*/m, '');
     jsContent = jsContent.replace(/^let isGeneratingImage = false;?\s*/m, '');
-    jsContent = jsContent.replace(/^let imageStates = \{\};?\s*/m, '');
     
-    // Remove event listeners that reference non-existent elements in exported version
+    // Remove event listeners for editing/generation features
     jsContent = jsContent.replace(/document\.getElementById\('process-btn'\).*?processText.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('clear-btn'\).*?clearInput.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('load-file-input'\).*?loadSlidesFromFile.*?\);?/g, '');
@@ -3041,22 +3329,20 @@ async function exportAsHTML() {
     jsContent = jsContent.replace(/document\.getElementById\('save-btn'\).*?saveSlides.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('present-save-btn'\).*?saveSlides.*?\);?/g, '');
     
-    // Remove the exportAsHTML function itself (no recursion!)
-    // Match from the comment before the function through the entire function body
-    // Using a more specific pattern that matches the end of the function
-    jsContent = jsContent.replace(/\/\/ Export slides as standalone HTML file[\s\S]*?alert\('Standalone HTML file exported[^}]*\}\s*\n/m, '');
+    // Remove the exportAsHTML function
+    jsContent = jsContent.replace(/\/\/ Export slides as lightweight HTML wrapper[\s\S]*?alert\('HTML wrapper and JSON[^}]*\}\s*\n/m, '');
     
-    // Create HTML with embedded data
+    // Create minimal HTML wrapper
     const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${pages[0]?.title || 'Lecture Slides'} - Slides</title>
+    <title>${escapeHtml(pages[0]?.title || 'Lecture Slides')} - Slides</title>
     <style>
 ${cssContent}
     
-    /* Hide input section for exported version */
+    /* Hide input/editing sections for exported version */
     .input-section,
     .btn-load,
     #load-file-input,
@@ -3072,22 +3358,22 @@ ${cssContent}
     <div class="container">
         <header>
             <h1>📚 ${escapeHtml(pages[0]?.title || 'Lecture Slides')}</h1>
-            <p class="subtitle">${pages.length} slides - Interactive presentation</p>
+            <p class="subtitle">Interactive presentation</p>
         </header>
 
         <div class="input-section" style="display: none;"></div>
 
-        <div id="loading" class="loading hidden">
+        <div id="loading" class="loading">
             <div class="spinner"></div>
             <p>Loading slides...</p>
         </div>
 
-        <div id="pages-container" class="pages-container">
+        <div id="pages-container" class="pages-container hidden">
             <div class="pages-header">
                 <h2>Lecture Slides</h2>
                 <div class="controls">
                     <button id="prev-btn" class="btn btn-nav">← Previous</button>
-                    <span id="page-counter">Page 1 of ${pages.length}</span>
+                    <span id="page-counter">Page 1 of 1</span>
                     <button id="next-btn" class="btn btn-nav">Next →</button>
                     <button id="present-btn" class="btn btn-present">🎬 Present Slides</button>
                 </div>
@@ -3110,8 +3396,9 @@ ${cssContent}
             <div class="presentation-main">
                 <div class="presentation-controls">
                     <button id="present-prev-btn" class="btn btn-present-nav">← Prev</button>
-                    <span id="present-counter">Slide 1 of ${pages.length}</span>
+                    <span id="present-counter">Slide 1 of 1</span>
                     <button id="present-next-btn" class="btn btn-present-nav">Next →</button>
+                    <button id="global-style-toggle" class="btn btn-style-toggle style-toggle-btn" onclick="toggleDisplayStyle()">🎨 Style</button>
                     <button id="print-btn" class="btn btn-save">🖨️ Print/PDF</button>
                     <button id="fullscreen-btn" class="btn btn-fullscreen">⛶ Full</button>
                     <button id="exit-present-btn" class="btn btn-exit">✕ Exit</button>
@@ -3120,10 +3407,10 @@ ${cssContent}
                 <div id="presentation-content" class="presentation-content"></div>
             </div>
             
-            <!-- Slide-only mode floating navigation (appears on hover) -->
+            <!-- Slide-only mode floating navigation -->
             <div class="slide-only-nav" id="slide-only-nav">
                 <button onclick="navigateSlide(-1)">← Prev</button>
-                <span class="nav-counter" id="slide-only-counter">1 / ${pages.length}</span>
+                <span class="nav-counter" id="slide-only-counter">1 / 1</span>
                 <button onclick="navigateSlide(1)">Next →</button>
                 <button onclick="toggleSlideOnlyMode()">✕ Exit Slide Only</button>
                 <span class="nav-hint">(PgUp/PgDown to navigate, Esc to exit)</span>
@@ -3134,38 +3421,6 @@ ${cssContent}
     </div>
 
     <script>
-// Image lookup for deduplication (reduces file size significantly)
-const IMAGE_LOOKUP = ${JSON.stringify(imageLookup)};
-
-function getImageFromLookup(ref) {
-    if (!ref || typeof ref !== 'string') return ref;
-    if (ref.startsWith('IMG_REF:')) {
-        const hash = ref.substring(8);
-        return IMAGE_LOOKUP[hash] || ref;
-    }
-    return ref;
-}
-
-// Resolve image references in slide data
-function resolveImageRefs(slides) {
-    return slides.map(slide => {
-        const resolved = {...slide};
-        if (resolved.primaryImageData) {
-            resolved.primaryImageData = getImageFromLookup(resolved.primaryImageData);
-        }
-        if (resolved.secondaryImageData) {
-            resolved.secondaryImageData = getImageFromLookup(resolved.secondaryImageData);
-        }
-        if (resolved.imageData) {
-            resolved.imageData = getImageFromLookup(resolved.imageData);
-        }
-        return resolved;
-    });
-}
-
-// Embedded slide data (with image references for deduplication)
-const EMBEDDED_SLIDES_DATA = ${JSON.stringify(deduplicatedPages, null, 2)};
-
 // Initialize variables
 let currentPageIndex = 0;
 let pages = [];
@@ -3173,14 +3428,40 @@ let presentationPageIndex = 0;
 let isProcessing = false;
 let imageQueue = [];
 let isGeneratingImage = false;
-let imageStates = {};
 
-// Load embedded data on page load
-window.addEventListener('DOMContentLoaded', function() {
-    pages = resolveImageRefs(EMBEDDED_SLIDES_DATA);
-    displayPages();
-    document.getElementById('pages-container').classList.remove('hidden');
-});
+// Load slides from JSON file (auto-detects filename from HTML name)
+async function loadSlidesFromJSON() {
+    // Get JSON filename by replacing .html with .json in current page URL
+    const htmlPath = window.location.pathname;
+    const htmlFilename = htmlPath.substring(htmlPath.lastIndexOf('/') + 1);
+    const jsonFilename = htmlFilename.replace(/\.html?$/i, '.json');
+    
+    try {
+        const response = await fetch(jsonFilename);
+        if (!response.ok) {
+            throw new Error('Failed to load ' + jsonFilename + ': ' + response.statusText);
+        }
+        pages = await response.json();
+        
+        // Update page counter
+        document.getElementById('page-counter').textContent = 'Page 1 of ' + pages.length;
+        document.getElementById('present-counter').textContent = 'Slide 1 of ' + pages.length;
+        document.getElementById('slide-only-counter').textContent = '1 / ' + pages.length;
+        
+        // Display pages
+        displayPages();
+        document.getElementById('pages-container').classList.remove('hidden');
+        document.getElementById('loading').classList.add('hidden');
+    } catch (error) {
+        document.getElementById('loading').innerHTML = 
+            '<div class="error">Error loading slides: ' + error.message + 
+            '<br><br>Make sure <strong>' + jsonFilename + '</strong> is in the same folder as this HTML file.</div>';
+        console.error('Error loading slides:', error);
+    }
+}
+
+// Load slides when page loads
+window.addEventListener('DOMContentLoaded', loadSlidesFromJSON);
 
 ${jsContent}
     </script>
@@ -3188,18 +3469,17 @@ ${jsContent}
 </html>`;
     
     // Create and download HTML file
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const filename = (pages[0]?.title.replace(/[^a-z0-9]/gi, '_') || 'slides') + '_' + new Date().toISOString().split('T')[0] + '.html';
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+    const htmlLink = document.createElement('a');
+    htmlLink.href = htmlUrl;
+    htmlLink.download = htmlFilename;
+    document.body.appendChild(htmlLink);
+    htmlLink.click();
+    document.body.removeChild(htmlLink);
+    URL.revokeObjectURL(htmlUrl);
     
-    alert('Standalone HTML file exported! You can open it directly in any browser.');
+    alert('HTML wrapper and JSON files exported!\n\nFiles created:\n• ' + htmlFilename + ' (lightweight wrapper)\n• ' + jsonFilename + ' (slide data)\n\nPlace both files in the same folder and open the HTML file in any browser.');
 }
 
 // Adjust text balance between main points and full text

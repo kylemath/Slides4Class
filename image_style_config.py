@@ -83,54 +83,53 @@ STYLE: Explain concepts purely through colored shapes, arrows, and visual relati
 
 DO NOT: Absolutely no text, no labels, no letters.""",
 
-    'reboot': """Photorealistic 3D educational visualization with scientific accuracy and natural backgrounds.
+    'reboot': """PHOTOREALISTIC 3D scientific visualization - like a high-end medical textbook or museum exhibit.
 
-FORMAT: Wide horizontal 16:9 aspect ratio. When helpful for understanding 3D structures, show 2-3 coordinated viewpoints (front, side, cross-section) to reveal spatial relationships.
+FORMAT: Wide horizontal 16:9 aspect ratio. When helpful, show 2-3 coordinated viewpoints (front, side, cross-section) to reveal 3D spatial relationships.
 
-TITLE: Include a clear, prominent title at the top of the image matching the educational topic. Use large, bold sans-serif text (dark text on light semi-transparent banner, OR white text with dark outline/shadow for darker backgrounds). Title should be immediately readable.
+RENDERING STYLE (CRITICAL - THIS IS NOT A DIAGRAM):
+- PHOTOREALISTIC 3D renders that look like real photographs or CGI movie quality
+- Actual 3D models with realistic lighting, shadows, depth, and materials
+- Organic tissues should look WET, TEXTURED, and REAL (not plastic or simplified)
+- Subsurface scattering for skin/tissue translucency
+- Realistic surface details: blood vessels, texture, moisture, natural imperfections
+- Think "Bodies exhibit" or "high-budget medical documentary" quality
+- NOT symbolic icons, NOT simplified diagrams, NOT flat illustrations
 
-BACKGROUND: Soft blurry bokeh backgrounds simulating macro photography with natural gradient colors:
-- Forest greens and moss tones
-- Sky blues, soft pinks, and cloud whites
-- Bark browns, tans, and warm greys
-- Rock greys and slate blues
-- Water teals and ocean greens
-Background should be smoothly out-of-focus to make the subject pop with clarity.
+BACKGROUND: Soft blurry bokeh backgrounds simulating macro photography:
+- Natural gradient colors: forest greens, sky blues, soft pinks, bark browns, water teals
+- Smoothly out-of-focus to make the photorealistic subject pop
+- Creates professional, cinematic depth
 
-3D RENDERING STYLE:
-- High-resolution photorealistic 3D renders with soft, natural lighting
-- Physically accurate materials and textures for organic tissues
-- Both macroscopic views (organs, full systems) and microscopic views (cells, structures)
-- Depth of field with the subject in sharp focus
-- Modern scientific illustration aesthetic - NOT flat, NOT cartoon, NOT hand-drawn
+TITLE: Include a clear, prominent title at the top. Use large, bold sans-serif text with high contrast (white text with dark outline, or dark text on light semi-transparent banner).
 
 SCIENTIFIC & ANATOMICAL ACCURACY (CRITICAL):
-- Brain structures must be anatomically correct with proper gyri/sulci patterns
-- Animal brains must look like ACTUAL animal brains (not shrunken human brains) - species-specific morphology
-- Subcortical structures properly positioned relative to cortex
-- Historical accuracy for research/case studies (e.g., Phineas Gage's tamping iron trajectory through left frontal lobe)
-- Proper scale and proportions - use zoom/inset effects when highlighting small structures
-- Correct spatial relationships and orientations (use standard neuroanatomy conventions)
+- Brain structures must be anatomically correct with proper gyri/sulci patterns - REALISTIC texture
+- Animal brains must look like ACTUAL animal brains (species-specific) - not simplified
+- Proper scale, proportions, and spatial relationships
+- Historical accuracy for case studies (e.g., Phineas Gage injury location)
+- Show REAL anatomical detail, not symbolic representations
 
 LABELS (LARGE, CLEAR, CONSISTENT):
-- Maximum 5-7 labels identifying key structures from the educational content
-- LARGE, highly readable text - minimum 24pt equivalent, bold sans-serif font (Arial, Helvetica style)
-- HIGH CONTRAST for readability: Choose ONE consistent style per image:
-  * Option A: White text with black outline/stroke (2-3px) - works on any background
-  * Option B: Dark text on semi-transparent white/light rounded rectangles
-  * Option C: White text on semi-transparent dark rounded rectangles
-- Thin but visible leader lines (2px) connecting labels to structures
-- Place labels outside the main subject with adequate spacing
-- ALL labels in the same image must use the SAME style for consistency
-- Spell all scientific terms correctly
+- Maximum 5-7 labels identifying key structures
+- LARGE, bold sans-serif text (24pt+ equivalent) with HIGH CONTRAST
+- Choose ONE style: white text with black outline OR text on semi-transparent boxes
+- Thin leader lines connecting to structures
+- ALL labels must use the SAME style
+- Correct scientific spelling
 
-COLOR CODING (CONSISTENT):
-- Motor areas/pathways: warm tones (red, orange)
-- Sensory areas/pathways: cool tones (blue, green)
+COLOR CODING:
+- Motor pathways: warm tones (red, orange)
+- Sensory pathways: cool tones (blue, green)
 - Limbic structures: purple
-- Use color consistently to aid learning
 
-DO NOT: No flat 2D diagrams, no whiteboard style, no hand-drawn look, no cartoon style, no video game elements, no artistic liberties with anatomy, no small/illegible labels, no inconsistent label styling, no inaccurate species morphology.""",
+ABSOLUTELY DO NOT:
+- No flat 2D diagrams or whiteboard style
+- No symbolic icons or simplified shapes
+- No cartoon or hand-drawn aesthetics
+- No abstract representations - show REAL structures
+- No plastic-looking or oversimplified models
+- No video game HUD elements""",
     
     'custom': """Put your own custom style prompt here."""
 }

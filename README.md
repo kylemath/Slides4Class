@@ -114,21 +114,35 @@ Another paragraph under the same header.
 
 ### Saving & Loading Slides
 
-1. **Save slides:** Click "💾 Save Slides" button
+1. **Save slides (JSON):** Click "💾 Save Slides" button
    - Downloads a `.json` file with all content and images
    - File includes: titles, content, main points, image prompts, and generated images
-   - Filename: `slides_YYYY-MM-DD.json`
+   - Filename example: `Chapter5bSlides.json`
 
-2. **Load slides:** Click "📂 Load Saved Slides" on main page
+2. **Export HTML:** Click "📄 Export HTML" button
+   - Creates TWO files with matching names:
+     - `Chapter5bSlides.html` - Lightweight wrapper (~50KB)
+     - `Chapter5bSlides.json` - Slide data with images (~1-5MB)
+   - **Place both files in the same folder** to view
+   - Open the HTML file in any browser - it loads the JSON automatically
+   - Each chapter gets its own uniquely-named HTML + JSON pair
+
+3. **Load slides:** Click "📂 Load Saved Slides" on main page
    - Select a previously saved `.json` file
    - All pages and images are restored instantly
    - No need to regenerate images!
+
+**Why this approach:**
+- HTML files are now small (~50KB) because they don't embed images
+- JSON files contain all the data (images as base64)
+- No more 100MB+ files that break GitHub!
+- Fast loading in class
 
 This is perfect for:
 - Preparing slides ahead of time
 - Sharing slides with colleagues
 - Reusing slides for multiple classes
-- Backing up your work
+- Version control friendly
 
 ## Image Generation
 

@@ -1,11 +1,3 @@
-{
-  "id": "Slides4Class",
-  "title": "Slides4Class",
-  "oneLiner": "Make automatic slides and images to accompany text",
-  "demoUrl": "https://github.com/kylemath/Slides4Class",
-  "screenshot": "https://raw.githubusercontent.com/kylemath/Slides4Class/main/screenshot.png",
-  "kind": "project",
-  "categories": [],
-  "tags": [],
-  "status": "published"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:ab21f19f757aed52fe6fb07ef912db047ceafdbfa7ad8e588baf5253957359f9
+size 354
