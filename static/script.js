@@ -2956,12 +2956,91 @@ async function generateImage(pageIndex, prompt) {
 // Store page prompts globally for easy access
 window.pagePrompts = [];
 
-// Export slides as standalone HTML file
+// Helper: convert a data URL to binary data and determine file extension
+function dataUrlToImageInfo(dataUrl) {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        return null;
+    }
+    const match = dataUrl.match(/^data:image\/([\w+]+);base64,(.+)$/);
+    if (!match) return null;
+    
+    let ext = match[1].toLowerCase();
+    if (ext === 'jpeg') ext = 'jpg';
+    if (ext === 'svg+xml') ext = 'svg';
+    
+    const base64Data = match[2];
+    // Convert base64 to Uint8Array
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return { ext, bytes };
+}
+
+// Export slides as a zip file with HTML, JSON, and extracted images
 async function exportAsHTML() {
     if (pages.length === 0) {
         alert('No slides to export!');
         return;
     }
+    
+    if (typeof JSZip === 'undefined') {
+        alert('JSZip library not loaded. Cannot create zip export.');
+        return;
+    }
+    
+    // Determine filename from first slide title
+    let baseFilename = pages[0]?.title.replace(/[^a-z0-9]/gi, '') || 'Chapter';
+    if (!baseFilename.toLowerCase().endsWith('slides')) {
+        baseFilename += 'Slides';
+    }
+    const jsonFilename = baseFilename + '.json';
+    const htmlFilename = baseFilename + '.html';
+    
+    const zip = new JSZip();
+    
+    // Track unique images to deduplicate (same image used on multiple slides)
+    const imageHashMap = new Map(); // dataUrl -> filename
+    let imageCounter = 0;
+    
+    // Extract images and build lightweight JSON
+    const exportPages = pages.map((page, index) => {
+        const exportPage = { ...page };
+        const slideNum = index + 1;
+        
+        ['primaryImageData', 'secondaryImageData', 'imageData'].forEach(field => {
+            const dataUrl = exportPage[field];
+            if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+                return; // Not a data URL, leave as-is (could be empty or already a path)
+            }
+            
+            // Check if we already extracted this exact image
+            if (imageHashMap.has(dataUrl)) {
+                exportPage[field] = imageHashMap.get(dataUrl);
+                return;
+            }
+            
+            // Extract image to file
+            const imgInfo = dataUrlToImageInfo(dataUrl);
+            if (!imgInfo) return;
+            
+            imageCounter++;
+            const fieldShort = field.replace('ImageData', '').replace('image', 'img');
+            const imgFilename = `images/slide_${slideNum}_${fieldShort}.${imgInfo.ext}`;
+            
+            zip.file(imgFilename, imgInfo.bytes);
+            imageHashMap.set(dataUrl, imgFilename);
+            exportPage[field] = imgFilename;
+        });
+        
+        return exportPage;
+    });
+    
+    console.log(`Extracted ${imageCounter} unique images from ${pages.length} slides`);
+    
+    // Add JSON (now lightweight, ~0.1MB instead of ~200MB)
+    zip.file(jsonFilename, JSON.stringify(exportPages, null, 2));
     
     // Fetch current CSS and JS
     const cssResponse = await fetch('style.css');
@@ -2988,18 +3067,16 @@ async function exportAsHTML() {
     jsContent = jsContent.replace(/document\.getElementById\('save-btn'\).*?saveSlides.*?\);?/g, '');
     jsContent = jsContent.replace(/document\.getElementById\('present-save-btn'\).*?saveSlides.*?\);?/g, '');
     
-    // Remove the exportAsHTML function itself (no recursion!)
-    // Match from the comment before the function through the entire function body
-    // Using a more specific pattern that matches the end of the function
-    jsContent = jsContent.replace(/\/\/ Export slides as standalone HTML file[\s\S]*?alert\('Standalone HTML file exported[^}]*\}\s*\n/m, '');
+    // Remove the exportAsHTML function and related helpers
+    jsContent = jsContent.replace(/\/\/ Helper: convert a data URL[\s\S]*?\/\/ Export slides as a zip file[\s\S]*?alert\(`Slides exported[^}]*\}\s*\n/m, '');
     
-    // Create HTML with embedded data
+    // Create HTML wrapper that loads JSON + images
     const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${pages[0]?.title || 'Lecture Slides'} - Slides</title>
+    <title>${escapeHtml(pages[0]?.title || 'Lecture Slides')} - Slides</title>
     <style>
 ${cssContent}
     
@@ -3019,22 +3096,22 @@ ${cssContent}
     <div class="container">
         <header>
             <h1>📚 ${escapeHtml(pages[0]?.title || 'Lecture Slides')}</h1>
-            <p class="subtitle">${pages.length} slides - Interactive presentation</p>
+            <p class="subtitle">Interactive presentation</p>
         </header>
 
         <div class="input-section" style="display: none;"></div>
 
-        <div id="loading" class="loading hidden">
+        <div id="loading" class="loading">
             <div class="spinner"></div>
             <p>Loading slides...</p>
         </div>
 
-        <div id="pages-container" class="pages-container">
+        <div id="pages-container" class="pages-container hidden">
             <div class="pages-header">
                 <h2>Lecture Slides</h2>
                 <div class="controls">
                     <button id="prev-btn" class="btn btn-nav">← Previous</button>
-                    <span id="page-counter">Page 1 of ${pages.length}</span>
+                    <span id="page-counter">Page 1 of 1</span>
                     <button id="next-btn" class="btn btn-nav">Next →</button>
                     <button id="present-btn" class="btn btn-present">🎬 Present Slides</button>
                 </div>
@@ -3057,8 +3134,9 @@ ${cssContent}
             <div class="presentation-main">
                 <div class="presentation-controls">
                     <button id="present-prev-btn" class="btn btn-present-nav">← Prev</button>
-                    <span id="present-counter">Slide 1 of ${pages.length}</span>
+                    <span id="present-counter">Slide 1 of 1</span>
                     <button id="present-next-btn" class="btn btn-present-nav">Next →</button>
+                    <button id="global-style-toggle" class="btn btn-style-toggle style-toggle-btn" onclick="toggleDisplayStyle()">🎨 Style</button>
                     <button id="print-btn" class="btn btn-save">🖨️ Print/PDF</button>
                     <button id="fullscreen-btn" class="btn btn-fullscreen">⛶ Full</button>
                     <button id="exit-present-btn" class="btn btn-exit">✕ Exit</button>
@@ -3067,10 +3145,10 @@ ${cssContent}
                 <div id="presentation-content" class="presentation-content"></div>
             </div>
             
-            <!-- Slide-only mode floating navigation (appears on hover) -->
+            <!-- Slide-only mode floating navigation -->
             <div class="slide-only-nav" id="slide-only-nav">
                 <button onclick="navigateSlide(-1)">← Prev</button>
-                <span class="nav-counter" id="slide-only-counter">1 / ${pages.length}</span>
+                <span class="nav-counter" id="slide-only-counter">1 / 1</span>
                 <button onclick="navigateSlide(1)">Next →</button>
                 <button onclick="toggleSlideOnlyMode()">✕ Exit Slide Only</button>
                 <span class="nav-hint">(PgUp/PgDown to navigate, Esc to exit)</span>
@@ -3081,9 +3159,6 @@ ${cssContent}
     </div>
 
     <script>
-// Embedded slide data (all slides with images baked in)
-const EMBEDDED_SLIDES_DATA = ${JSON.stringify(pages, null, 2)};
-
 // Initialize variables
 let currentPageIndex = 0;
 let pages = [];
@@ -3093,31 +3168,67 @@ let imageQueue = [];
 let isGeneratingImage = false;
 let imageStates = {};
 
-// Load embedded data on page load
-window.addEventListener('DOMContentLoaded', function() {
-    pages = EMBEDDED_SLIDES_DATA;
-    displayPages();
-    document.getElementById('pages-container').classList.remove('hidden');
-});
+// Load slides from JSON file
+async function loadSlidesFromJSON() {
+    const jsonFilename = '${jsonFilename}';
+    
+    try {
+        const response = await fetch(jsonFilename);
+        if (!response.ok) {
+            throw new Error('Failed to load ' + jsonFilename + ': ' + response.statusText);
+        }
+        pages = await response.json();
+        
+        // Update page counter
+        document.getElementById('page-counter').textContent = 'Page 1 of ' + pages.length;
+        document.getElementById('present-counter').textContent = 'Slide 1 of ' + pages.length;
+        document.getElementById('slide-only-counter').textContent = '1 / ' + pages.length;
+        
+        // Display pages
+        displayPages();
+        document.getElementById('pages-container').classList.remove('hidden');
+        document.getElementById('loading').classList.add('hidden');
+    } catch (error) {
+        document.getElementById('loading').innerHTML = 
+            '<div class="error">Error loading slides: ' + error.message + 
+            '<br><br>Make sure <strong>' + jsonFilename + '</strong> and the <strong>images/</strong> folder are in the same directory as this HTML file.</div>';
+        console.error('Error loading slides:', error);
+    }
+}
+
+// Load slides when page loads
+window.addEventListener('DOMContentLoaded', loadSlidesFromJSON);
 
 ${jsContent}
     </script>
 </body>
 </html>`;
     
-    // Create and download HTML file
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const filename = (pages[0]?.title.replace(/[^a-z0-9]/gi, '_') || 'slides') + '_' + new Date().toISOString().split('T')[0] + '.html';
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Add HTML to zip
+    zip.file(htmlFilename, htmlContent);
     
-    alert('Standalone HTML file exported! You can open it directly in any browser.');
+    // Generate zip and trigger download
+    const zipBlob = await zip.generateAsync({ 
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+    }, (metadata) => {
+        if (metadata.percent) {
+            console.log(`Zipping: ${metadata.percent.toFixed(0)}%`);
+        }
+    });
+    
+    const zipUrl = URL.createObjectURL(zipBlob);
+    const zipLink = document.createElement('a');
+    zipLink.href = zipUrl;
+    zipLink.download = baseFilename + '.zip';
+    document.body.appendChild(zipLink);
+    zipLink.click();
+    document.body.removeChild(zipLink);
+    URL.revokeObjectURL(zipUrl);
+    
+    const sizeMB = (zipBlob.size / (1024 * 1024)).toFixed(1);
+    alert(`Slides exported as ${baseFilename}.zip (${sizeMB} MB)\n\nContents:\n• ${htmlFilename}\n• ${jsonFilename}\n• images/ folder (${imageCounter} images)\n\nExtract the zip and open the HTML file in any browser.`);
 }
 
 // Adjust text balance between main points and full text
