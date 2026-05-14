@@ -3339,6 +3339,7 @@ async function exportAsHTML() {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${escapeHtml(pages[0]?.title || 'Lecture Slides')} - Slides</title>
+    <title>${escapeHtml(pages[0]?.title || 'Lecture Slides')} - Slides</title>
     <style>
 ${cssContent}
     
@@ -3359,20 +3360,24 @@ ${cssContent}
         <header>
             <h1>📚 ${escapeHtml(pages[0]?.title || 'Lecture Slides')}</h1>
             <p class="subtitle">Interactive presentation</p>
+            <p class="subtitle">Interactive presentation</p>
         </header>
 
         <div class="input-section" style="display: none;"></div>
 
+        <div id="loading" class="loading">
         <div id="loading" class="loading">
             <div class="spinner"></div>
             <p>Loading slides...</p>
         </div>
 
         <div id="pages-container" class="pages-container hidden">
+        <div id="pages-container" class="pages-container hidden">
             <div class="pages-header">
                 <h2>Lecture Slides</h2>
                 <div class="controls">
                     <button id="prev-btn" class="btn btn-nav">← Previous</button>
+                    <span id="page-counter">Page 1 of 1</span>
                     <span id="page-counter">Page 1 of 1</span>
                     <button id="next-btn" class="btn btn-nav">Next →</button>
                     <button id="present-btn" class="btn btn-present">🎬 Present Slides</button>
@@ -3397,7 +3402,9 @@ ${cssContent}
                 <div class="presentation-controls">
                     <button id="present-prev-btn" class="btn btn-present-nav">← Prev</button>
                     <span id="present-counter">Slide 1 of 1</span>
+                    <span id="present-counter">Slide 1 of 1</span>
                     <button id="present-next-btn" class="btn btn-present-nav">Next →</button>
+                    <button id="global-style-toggle" class="btn btn-style-toggle style-toggle-btn" onclick="toggleDisplayStyle()">🎨 Style</button>
                     <button id="global-style-toggle" class="btn btn-style-toggle style-toggle-btn" onclick="toggleDisplayStyle()">🎨 Style</button>
                     <button id="print-btn" class="btn btn-save">🖨️ Print/PDF</button>
                     <button id="fullscreen-btn" class="btn btn-fullscreen">⛶ Full</button>
@@ -3408,8 +3415,10 @@ ${cssContent}
             </div>
             
             <!-- Slide-only mode floating navigation -->
+            <!-- Slide-only mode floating navigation -->
             <div class="slide-only-nav" id="slide-only-nav">
                 <button onclick="navigateSlide(-1)">← Prev</button>
+                <span class="nav-counter" id="slide-only-counter">1 / 1</span>
                 <span class="nav-counter" id="slide-only-counter">1 / 1</span>
                 <button onclick="navigateSlide(1)">Next →</button>
                 <button onclick="toggleSlideOnlyMode()">✕ Exit Slide Only</button>
